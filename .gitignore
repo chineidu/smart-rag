@@ -213,3 +213,5 @@ __marimo__/
 **/**/note.*
 .DS_Store
 .vscode/
+**/**/data
+
