@@ -85,3 +85,6 @@ def refresh_settings() -> Settings:
     """
     load_dotenv(override=True)
     return Settings()
+
+
+app_settings: Settings = refresh_settings()
