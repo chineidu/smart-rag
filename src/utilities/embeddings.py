@@ -49,7 +49,7 @@ class TogetherEmbeddings(BaseModel, Embeddings):
         """Embed search docs."""
         return [
             i.embedding
-            for i in self.client.embeddings.create(input=texts, model=self.model).data
+            for i in self.client.embeddings.create(input=texts, model=self.model).data  # type: ignore
         ]  # type: ignore
 
     def embed_query(self, text: str) -> list[float]:
