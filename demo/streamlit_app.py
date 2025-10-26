@@ -150,7 +150,7 @@ def main() -> None:
         layout="wide",
     )
 
-    st.title("🤖 Smart RAG Chat")
+    st.title("🤖 AI Chat Assistant")
     st.caption("Chat with AI powered by agentic RAG")
 
     # Initialize session state

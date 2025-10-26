@@ -43,10 +43,10 @@ async def generate_chat_responses(
         )
 
         # First send the checkpoint ID
-        yield f'data: {{"type": "checkpoint", "checkpoint_id": "{new_checkpoint_id}"}}\n\n'
+        yield f"data: {json.dumps({'type': 'checkpoint', 'checkpoint_id': new_checkpoint_id})}\n\n"
     else:
-        config: dict[str, dict[str, str]] = {  # type: ignore
-            "configurable": {"thread_id": checkpoint_id}
+        config = {
+            "configurable": {"thread_id": checkpoint_id}  # type: ignore
         }
         # Continue existing conversation
         events = graph.astream_events(
@@ -62,20 +62,18 @@ async def generate_chat_responses(
         # =========== Stream AI message chunks ===========
         if event_type == "on_chat_model_stream":
             chunk_content = serialise_ai_message_chunk(event["data"]["chunk"])  # type: ignore
-            # Escape single quotes and newlines for safe JSON parsing
-            safe_content = chunk_content.replace("'", "\\'").replace("\n", "\\n")  # type: ignore
-
-            yield f'data: {{"type": "content", "content": "{safe_content}"}}\n\n'
+            payload = {"type": "content", "content": chunk_content}
+            yield f"data: {json.dumps(payload)}\n\n"
 
         # =========== Check if model made any tool calls ===========
         # Get the input arguments for the tool calls
         elif event_type == "on_chat_model_end":
             # Check if there are tool calls for search
             tool_calls = (
-                event["data"]["output"].tool_calls
-                if hasattr(event["data"]["output"], "tool_calls")
+                event["data"]["output"].tool_calls  # type: ignore
+                if hasattr(event["data"]["output"], "tool_calls")  # type: ignore
                 else []
-            )  # type: ignore
+            )
             search_calls = [
                 call for call in tool_calls if call["name"] == "search_tool"
             ]
@@ -83,13 +81,8 @@ async def generate_chat_responses(
             if search_calls:
                 # Signal that a search is starting
                 search_query: str = search_calls[0]["args"].get("query", "")
-                # Escape quotes and special characters
-                safe_query = (
-                    search_query.replace('"', '\\"')
-                    .replace("'", "\\'")
-                    .replace("\n", "\\n")
-                )
-                yield f'data: {{"type": "search_start", "query": "{safe_query}"}}\n\n'
+                payload = {"type": "search_start", "query": search_query}
+                yield f"data: {json.dumps(payload)}\n\n"
         # date_tool has NO input arguments to extract, so we skip that step
 
         # Get tool completion events
@@ -116,7 +109,8 @@ async def generate_chat_responses(
             _date: str = date_str.split("T")[0]
             _time: str = date_str.split("T")[1]
             formatted_date = f"{_date} {_time}"
-            yield f'data: {{"type": "date_result", "result": {formatted_date}}}\n\n'
+            payload = {"type": "date_result", "result": formatted_date}
+            yield f"data: {json.dumps(payload)}\n\n"
 
     # Send an end event
     yield 'data: {"type": "end"}\n\n'
