@@ -61,7 +61,7 @@ async def get_structured_output(
     return await aclient.chat.completions.create(
         model=model,
         response_model=schema,
-        messages=messages,
+        messages=messages,  # type: ignore
         max_retries=5,
     )
 
