@@ -5,8 +5,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from demo.api import get_stream
-from demo.api.utilities import lifespan
+from demo.api.routes import feedback, get_history, get_stream
+from demo.api.utilities.utilities import lifespan
 
 warnings.filterwarnings("ignore")
 
@@ -41,7 +41,9 @@ def create_application() -> FastAPI:
     )
 
     # Include routers
+    app.include_router(feedback.router, prefix="/api/v1")
     app.include_router(get_stream.router, prefix="/api/v1")
+    app.include_router(get_history.router, prefix="/api/v1")
 
     return app
 

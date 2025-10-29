@@ -3,6 +3,7 @@ import os
 import time
 import warnings
 from contextlib import asynccontextmanager
+from enum import Enum
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -27,7 +28,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         start_time: float = time.perf_counter()
         logger.info("Starting up application and loading model...")
 
-        # Load model here
+        # ===================================================
+        # ================= Load model here =================
+        # ===================================================
+
         await asyncio.sleep(1)  # Simulate async model loading
         app.state.my_model = {"dummy": "model"}  # Placeholder for model instance
 
@@ -61,3 +65,22 @@ def get_model_manager(request: Request) -> dict[str, Any]:
             detail="Prediction service not loaded. Please try again later.",
         )
     return request.app.state.my_model
+
+
+class Events(str, Enum):
+    """Enumeration of possible event types."""
+
+    CHECKPOINT = "checkpoint"
+    CONTENT = "content"
+    SEARCH_START = "search_start"
+    SEARCH_RESULT = "search_result"
+    DATE_RESULT = "date_result"
+    COMPLETION_END = "end"
+
+
+class Feedback(str, Enum):
+    """Enumeration of possible feedback types."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = None

@@ -1,14 +1,20 @@
 """Streamlit app for Smart RAG chat interface with streaming support and enhanced UI."""
 
+import asyncio
 import json
+import re
 from typing import Any
 
 import httpx
 import streamlit as st
 
+from demo.api.utilities.utilities import Events, Feedback
+
 # Configuration
 API_BASE_URL: str = "http://localhost:8080"
 CHAT_STREAM_ENDPOINT: str = f"{API_BASE_URL}/api/v1/chat_stream"
+FEEDBACK_ENDPOINT: str = f"{API_BASE_URL}/api/v1/feedback"
+CHAT_HISTORY_ENDPOINT: str = f"{API_BASE_URL}/api/v1/chat_history"
 
 
 def initialize_session_state() -> None:
@@ -19,21 +25,278 @@ def initialize_session_state() -> None:
         st.session_state.checkpoint_id = None
     if "message_count" not in st.session_state:
         st.session_state.message_count = 0
+    if "feedback" not in st.session_state:
+        st.session_state.feedback = {}
 
 
 def parse_sse_event(line: str) -> dict[str, Any] | None:
     """Parse a Server-Sent Event line."""
     if line.startswith("data: "):
         try:
-            data = line[6:]
+            data: str = line[6:]
             return json.loads(data)
+
         except json.JSONDecodeError:
             return None
+
     return None
 
 
+def markdown_to_html(text: str) -> str:
+    """Convert markdown links to HTML links."""
+    # Convert markdown links [text](url) to HTML <a> tags
+    pattern = r"\[([^\]]+)\]\(([^\)]+)\)"
+    html_text = re.sub(pattern, r'<a href="\2" target="_blank">\1</a>', text)
+
+    # Convert newlines to <br> tags
+    return html_text.replace("\n", "<br>")
+
+
+async def send_feedback_to_api(message_index: int, feedback_type: str | None) -> None:
+    """Send feedback data to FastAPI endpoint."""
+    try:
+        # Get the message data
+        if message_index >= len(st.session_state.messages):
+            st.toast("⚠️ Invalid message index", icon="⚠️")
+            return
+
+        message_data = st.session_state.messages[message_index]
+
+        # Ensure this is an assistant message
+        if message_data["role"] != "assistant":
+            st.toast("⚠️ Can only provide feedback on assistant messages", icon="⚠️")
+            return
+
+        # Get the corresponding user message (should be the one before)
+        user_message = ""
+        if (
+            message_index > 0
+            and st.session_state.messages[message_index - 1]["role"] == "user"
+        ):
+            user_message = st.session_state.messages[message_index - 1]["content"]
+
+        payload: dict[str, Any] = {
+            "session_id": st.session_state.checkpoint_id
+            if st.session_state.checkpoint_id
+            else "no_session",
+            "message_index": message_index,
+            "user_message": user_message,
+            "assistant_message": message_data["content"],
+            "sources": message_data.get("sources")
+            if message_data.get("sources")
+            else [],
+            "feedback": feedback_type,
+        }
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(FEEDBACK_ENDPOINT, json=payload)
+            response.raise_for_status()
+            st.toast("✅ Feedback saved!", icon="✅")
+
+    except httpx.HTTPStatusError as e:
+        error_detail = e.response.text
+        print(f"HTTP Error {e.response.status_code}: {error_detail}")
+        st.toast(f"⚠️ Server error: {e.response.status_code}", icon="⚠️")
+    except httpx.HTTPError as e:
+        print(f"HTTP Error: {str(e)}")
+        st.toast(f"⚠️ Failed to save feedback: {str(e)}", icon="⚠️")
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        st.toast(f"⚠️ Error: {str(e)}", icon="⚠️")
+
+
+async def load_chat_history(checkpoint_id: str) -> bool:
+    """Load chat history from a checkpoint ID.
+
+    Parameters
+    -----------
+    checkpoint_id:
+        The checkpoint ID to load history from
+
+    Returns
+    --------
+    bool
+        True if successful, False otherwise
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                CHAT_HISTORY_ENDPOINT, params={"checkpoint_id": checkpoint_id}
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Convert the loaded messages to the format used in the app
+            loaded_messages = []
+            for msg in data.get("messages", []):
+                # Map message types (human -> user, ai -> assistant)
+                role = msg["role"]
+                if role == "human":
+                    role = "user"
+                elif role == "ai":
+                    role = "assistant"
+
+                loaded_messages.append(
+                    {"role": role, "content": msg["content"], "sources": None}
+                )
+
+            # Update session state
+            st.session_state.messages = loaded_messages
+            st.session_state.checkpoint_id = checkpoint_id
+            st.session_state.message_count = len(
+                [m for m in loaded_messages if m["role"] == "assistant"]
+            )
+            st.session_state.feedback = {}
+
+            return True
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            st.toast(f"⚠️ Checkpoint '{checkpoint_id}' not found", icon="⚠️")
+        else:
+            st.toast(f"⚠️ Server error: {e.response.status_code}", icon="⚠️")
+        return False
+    except httpx.HTTPError as e:
+        st.toast(f"⚠️ Connection error: {str(e)}", icon="⚠️")
+        return False
+    except Exception as e:
+        st.toast(f"⚠️ Error loading checkpoint: {str(e)}", icon="⚠️")
+        return False
+
+
+def render_sources_section(sources: list[str]) -> None:
+    """Render a collapsible sources section with enhanced styling."""
+    if not sources:
+        return
+
+    with st.expander(
+        f"📚 **{len(sources)} Source{'' if len(sources) == 1 else 's'} Referenced**",
+        expanded=False,
+    ):
+        st.markdown(
+            """
+            <style>
+            .source-item {
+                padding: 0.75rem 1rem;
+                margin: 0.5rem 0;
+                background: white;
+                border-left: 4px solid #667eea;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                transition: all 0.2s ease;
+            }
+            .source-item:hover {
+                box-shadow: 0 3px 8px rgba(102, 126, 234, 0.2);
+                transform: translateX(4px);
+            }
+            .source-number {
+                display: inline-block;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                width: 28px;
+                height: 28px;
+                line-height: 28px;
+                text-align: center;
+                border-radius: 50%;
+                font-weight: bold;
+                font-size: 0.85rem;
+                margin-right: 0.75rem;
+            }
+            .source-link {
+                text-decoration: none;
+                color: #667eea;
+                font-weight: 500;
+                transition: color 0.2s ease;
+            }
+            .source-link:hover {
+                color: #764ba2;
+                text-decoration: underline;
+            }
+            .source-domain {
+                color: #6c757d;
+                font-size: 0.85rem;
+                margin-left: 2.5rem;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        for idx, url in enumerate(sources, 1):
+            # Extract domain and path for display
+            try:
+                parts = url.split("/")
+                domain = parts[2] if len(parts) > 2 else url
+                path = "/" + "/".join(parts[3:]) if len(parts) > 3 else ""
+                display_path = (path[:50] + "...") if len(path) > 50 else path
+            except Exception:
+                domain = url
+                display_path = ""
+
+            st.markdown(
+                f"""
+                <div class="source-item">
+                    <span class="source-number">{idx}</span>
+                    <a href="{url}" target="_blank" class="source-link">
+                        {domain}
+                    </a>
+                    {f'<div class="source-domain">{display_path}</div>' if display_path else ""}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_feedback_buttons(message_index: int) -> None:
+    """Render feedback buttons for a message."""
+    feedback_key = f"msg_{message_index}"
+    current_feedback = st.session_state.feedback.get(feedback_key)
+
+    col1, col2, col3 = st.columns([0.1, 0.1, 0.8])
+
+    with col1:
+        if st.button(
+            "👍" if current_feedback != Feedback.POSITIVE else "✅",
+            key=f"thumbs_up_{message_index}",
+            help="Helpful response",
+            use_container_width=True,
+        ):
+            # Toggle positive feedback: if already positive, remove it; otherwise, set to positive
+            if current_feedback == Feedback.POSITIVE:
+                new_feedback = Feedback.NEUTRAL.value  # Remove/clear feedback
+            else:
+                new_feedback = Feedback.POSITIVE  # Set positive feedback
+
+            st.session_state.feedback[feedback_key] = new_feedback
+
+            # Send feedback to API
+            asyncio.run(send_feedback_to_api(message_index, new_feedback))
+            st.rerun()
+
+    with col2:
+        if st.button(
+            "👎" if current_feedback != Feedback.NEGATIVE else "❌",
+            key=f"thumbs_down_{message_index}",
+            help="Not helpful",
+            use_container_width=True,
+        ):
+            # Toggle negative feedback: if already negative, remove it; otherwise, set to negative
+            if current_feedback == Feedback.NEGATIVE:
+                new_feedback = Feedback.NEUTRAL.value  # Remove/clear feedback
+            else:
+                new_feedback = Feedback.NEGATIVE  # Set negative feedback
+            st.session_state.feedback[feedback_key] = new_feedback
+
+            # Send feedback to API
+            asyncio.run(send_feedback_to_api(message_index, new_feedback))
+            st.rerun()
+
+
 def render_message_with_avatar(
-    role: str, content: str, sources: list[str] | None = None
+    role: str,
+    content: str,
+    sources: list[str] | None = None,
+    message_index: int | None = None,
 ) -> None:
     """Render a message with custom styling and avatar."""
     if role == "user":
@@ -68,33 +331,39 @@ def render_message_with_avatar(
                             margin: 0.5rem 0;
                             border: 1px solid #e9ecef;
                             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-                    {content}
+                    {markdown_to_html(content)}
                 </div>
+                <style>
+                div[style*="background: #f8f9fa"] a {{
+                    color: #667eea;
+                    text-decoration: none;
+                    font-weight: 500;
+                    transition: color 0.2s ease;
+                }}
+                div[style*="background: #f8f9fa"] a:hover {{
+                    color: #764ba2;
+                    text-decoration: underline;
+                }}
+                </style>
                 """,
                 unsafe_allow_html=True,
             )
+
             if sources:
-                with st.expander(
-                    f"📚 {len(sources)} Sources Referenced", expanded=False
-                ):
-                    for idx, url in enumerate(sources, 1):
-                        domain = url.split("/")[2] if len(url.split("/")) > 2 else url
-                        st.markdown(
-                            f"""
-                            <div style="padding: 0.5rem; margin: 0.25rem 0; background: white;
-                                        border-left: 3px solid #667eea; border-radius: 4px;">
-                                <strong>{idx}.</strong> <a href="{url}" target="_blank"
-                                style="text-decoration: none; color: #667eea;">
-                                {domain}</a>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+                render_sources_section(sources)
+
+            # Add feedback buttons for assistant messages
+            if message_index is not None:
+                render_feedback_buttons(message_index)
 
 
 async def stream_chat_response(message: str, checkpoint_id: str | None = None) -> None:
     """Stream chat response from the API with enhanced UI feedback."""
-    params: dict[str, str] = {"checkpoint_id": checkpoint_id} if checkpoint_id else {}
+
+    # Build query parameters including the message
+    params: dict[str, str] = {"message": message}
+    if checkpoint_id:
+        params["checkpoint_id"] = checkpoint_id
 
     # Add user message with custom rendering
     st.session_state.messages.append({"role": "user", "content": message})
@@ -115,11 +384,9 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
         search_query: str = ""
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 async with client.stream(
-                    "GET",
-                    f"{CHAT_STREAM_ENDPOINT}/{message}",
-                    params=params,
+                    "GET", CHAT_STREAM_ENDPOINT, params=params
                 ) as response:
                     response.raise_for_status()
 
@@ -133,10 +400,10 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
 
                         event_type = event.get("type")
 
-                        if event_type == "checkpoint":
+                        if event_type == Events.CHECKPOINT:
                             st.session_state.checkpoint_id = event.get("checkpoint_id")
 
-                        elif event_type == "search_start":
+                        elif event_type == Events.SEARCH_START:
                             search_query = event.get("query", "")
                             with status_container:
                                 st.markdown(
@@ -162,7 +429,7 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
                                     unsafe_allow_html=True,
                                 )
 
-                        elif event_type == "search_results":
+                        elif event_type == Events.SEARCH_RESULT:
                             sources = event.get("urls", [])
                             if sources:
                                 with status_container:
@@ -181,7 +448,7 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
                                         unsafe_allow_html=True,
                                     )
 
-                        elif event_type == "date_result":
+                        elif event_type == Events.DATE_RESULT:
                             date_result = event.get("result", "")
                             with status_container:
                                 st.markdown(
@@ -199,7 +466,7 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
                                     unsafe_allow_html=True,
                                 )
 
-                        elif event_type == "content":
+                        elif event_type == Events.CONTENT:
                             content = event.get("content", "")
                             full_response += content
                             with message_placeholder:
@@ -211,19 +478,28 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
                                                 border-radius: 18px 18px 18px 4px;
                                                 border: 1px solid #e9ecef;
                                                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-                                        {full_response}<span style="animation: blink 1s infinite;">▌</span>
+                                        {markdown_to_html(full_response)}<span style="animation: blink 1s infinite;">▌</span>
                                     </div>
                                     <style>
                                     @keyframes blink {{
                                         0%, 50% {{ opacity: 1; }}
                                         51%, 100% {{ opacity: 0; }}
                                     }}
+                                    div[style*="background: #f8f9fa"] a {{
+                                        color: #667eea;
+                                        text-decoration: none;
+                                        font-weight: 500;
+                                    }}
+                                    div[style*="background: #f8f9fa"] a:hover {{
+                                        color: #764ba2;
+                                        text-decoration: underline;
+                                    }}
                                     </style>
                                     """,
                                     unsafe_allow_html=True,
                                 )
 
-                        elif event_type == "end":
+                        elif event_type == Events.COMPLETION_END:
                             status_container.empty()
                             with message_placeholder:
                                 st.markdown(
@@ -233,35 +509,26 @@ async def stream_chat_response(message: str, checkpoint_id: str | None = None) -
                                                 border-radius: 18px 18px 18px 4px;
                                                 border: 1px solid #e9ecef;
                                                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-                                        {full_response}
+                                        {markdown_to_html(full_response)}
                                     </div>
+                                    <style>
+                                    div[style*="background: #f8f9fa"] a {{
+                                        color: #667eea;
+                                        text-decoration: none;
+                                        font-weight: 500;
+                                    }}
+                                    div[style*="background: #f8f9fa"] a:hover {{
+                                        color: #764ba2;
+                                        text-decoration: underline;
+                                    }}
+                                    </style>
                                     """,
                                     unsafe_allow_html=True,
                                 )
 
                             if sources:
                                 with sources_container:
-                                    with st.expander(
-                                        f"📚 {len(sources)} Sources Referenced",
-                                        expanded=False,
-                                    ):
-                                        for idx, url in enumerate(sources, 1):
-                                            domain = (
-                                                url.split("/")[2]
-                                                if len(url.split("/")) > 2
-                                                else url
-                                            )
-                                            st.markdown(
-                                                f"""
-                                                <div style="padding: 0.5rem; margin: 0.25rem 0; background: white;
-                                                            border-left: 3px solid #667eea; border-radius: 4px;">
-                                                    <strong>{idx}.</strong> <a href="{url}" target="_blank"
-                                                    style="text-decoration: none; color: #667eea;">
-                                                    {domain}</a>
-                                                </div>
-                                                """,
-                                                unsafe_allow_html=True,
-                                            )
+                                    render_sources_section(sources)
                             break
 
         except httpx.HTTPError as e:
@@ -353,7 +620,31 @@ def main() -> None:
             st.session_state.messages = []
             st.session_state.checkpoint_id = None
             st.session_state.message_count = 0
+            st.session_state.feedback = {}
             st.rerun()
+
+        st.markdown("---")
+
+        # Continue from previous chat
+        st.markdown("## 🔄 Continue Previous Chat")
+        checkpoint_input = st.text_input(
+            "Enter Checkpoint ID",
+            placeholder="Paste checkpoint ID here...",
+            help="Enter a previous checkpoint ID to continue that conversation",
+        )
+        if st.button(
+            "📥 Load Checkpoint",
+            use_container_width=True,
+            disabled=not checkpoint_input,
+        ):
+            if checkpoint_input:
+                with st.spinner("Loading checkpoint..."):
+                    success = asyncio.run(load_chat_history(checkpoint_input))
+                    if success:
+                        st.success(
+                            f"✅ Loaded checkpoint with {st.session_state.message_count} messages"
+                        )
+                        st.rerun()
 
         st.markdown("---")
 
@@ -365,6 +656,28 @@ def main() -> None:
         with col2:
             status = "🟢 Active" if st.session_state.checkpoint_id else "⚪ New"
             st.metric("Status", status)
+
+        # Feedback stats
+        if st.session_state.feedback:
+            positive = sum(
+                1 for v in st.session_state.feedback.values() if v == "positive"
+            )
+            negative = sum(
+                1 for v in st.session_state.feedback.values() if v == "negative"
+            )
+            total = positive + negative
+
+            st.markdown("### 💭 Feedback")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("👍 Helpful", positive)
+            with col2:
+                st.metric("👎 Not Helpful", negative)
+
+            if total > 0:
+                satisfaction = (positive / total) * 100
+                st.progress(satisfaction / 100)
+                st.caption(f"Satisfaction: {satisfaction:.0f}%")
 
         st.markdown("---")
 
@@ -380,6 +693,9 @@ def main() -> None:
             **🔍 Tavily Search**
             Real-time web research
 
+            **🗓️ Date Tool**
+            Date and time manipulation
+
             **⚡ FastAPI**
             High-performance streaming
 
@@ -390,10 +706,23 @@ def main() -> None:
 
         if st.session_state.checkpoint_id:
             st.markdown("---")
-            st.markdown("## 🔑 Session Info")
-            st.code(st.session_state.checkpoint_id[:16] + "...", language=None)
+            st.markdown("## 🔑 Checkpoint ID")
 
-    # Main chat area
+            col1, col2 = st.columns([0.85, 0.15])
+            with col1:
+                st.code(st.session_state.checkpoint_id, language=None)
+            with col2:
+                if st.button(
+                    "📋",
+                    key="copy_checkpoint",
+                    help="Copy to clipboard",
+                    use_container_width=True,
+                ):
+                    st.toast("✅ Copied to clipboard!", icon="✅")
+
+            st.caption(
+                "💡 Copy this ID to resume your conversation later"
+            )  # Main chat area
     chat_container = st.container()
 
     with chat_container:
@@ -423,15 +752,21 @@ def main() -> None:
             )
         else:
             # Display message history
-            for msg in st.session_state.messages:
+            assistant_message_count = 0
+            for idx, msg in enumerate(st.session_state.messages):
+                # Track assistant messages separately for feedback
+                if msg["role"] == "assistant":
+                    message_index = idx
+                    assistant_message_count += 1
+                else:
+                    message_index = None
+
                 render_message_with_avatar(
-                    msg["role"], msg["content"], msg.get("sources")
+                    msg["role"], msg["content"], msg.get("sources"), message_index
                 )
 
     # Chat input
     if prompt := st.chat_input("💬 Type your message here...", key="chat_input"):
-        import asyncio
-
         asyncio.run(
             stream_chat_response(prompt, checkpoint_id=st.session_state.checkpoint_id)
         )

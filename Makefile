@@ -33,7 +33,7 @@ demo:
 	@echo "Press Ctrl+C in each pane to stop"
 	@if command -v tmux > /dev/null; then \
 		tmux new-session -d -s smart-rag 'uv run -m demo.api.app' \; \
-		split-window -v 'sleep 3 && uv run streamlit run demo/streamlit_app.py' \; \
+		split-window -v 'sleep 3 && uv run -m streamlit run demo/streamlit_app.py' \; \
 		attach-session -t smart-rag; \
 	else \
 		echo "❌ tmux is not installed. Please install it or run servers separately:"; \
