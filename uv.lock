@@ -3437,6 +3437,7 @@ dev = [
     { name = "polars" },
     { name = "prek" },
     { name = "ruff" },
+    { name = "tabulate" },
 ]
 
 [package.metadata]
@@ -3474,6 +3475,7 @@ dev = [
     { name = "polars", specifier = ">=1.34.0" },
     { name = "prek", specifier = ">=0.2.11" },
     { name = "ruff", specifier = ">=0.14.1" },
+    { name = "tabulate", specifier = ">=0.9.0" },
 ]
 
 [[package]]
