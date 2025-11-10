@@ -26,19 +26,20 @@ class RequestMethods(str, Enum):
 
 class OpenRouterClientPaths(str, Enum):
     BASE_URL = "https://openrouter.ai/api/v1"
-    GENERATION_METADATA = "generation"  # requires generation ID
 
-    CHAT_COMPLETIONS = (
-        "chat/completions"  # requires {"model": "model_name", "messages": [...]}
-    )
-    COMPLETIONS = "completions"  # requires {"model": "model_name", "prompt": "..."}
+    # All POST endpoints below
+    CHAT_COMPLETIONS = "chat/completions"
+    COMPLETIONS = "completions"
     EMBEDDINGS = "embeddings"
 
+    # All GET endpoints below
     MODEL_COUNT = "models/count"
     LIST_MODELS_AND_PROPERTIES = "models"
     LIST_ALL_EMBEDDING_MODELS = "models/embeddings"
 
-    MODEL_SUPPORTED_PARAMETERS = "parameters/author/slug"
+    # All GET endpoints below
+    MODEL_SUPPORTED_PARAMETERS = "parameters"
     LIST_ALL_PROVIDERS = "providers"
     USER_ACTIVITY = "activity"
     REMAINING_CREDITS = "credits"
+    GENERATION_METADATA = "generation"  # requires generation ID

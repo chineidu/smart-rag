@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 type ChatResourceClient = OpenRouterClient | AsyncOpenRouterClient
 
-type CategoryInput = Literal[
+type CategoryTypes = Literal[
     "programming",
     "roleplay",
     "marketing",
@@ -60,27 +60,25 @@ class ModelsResource:
 
     def count(self) -> dict[str, Any]:
         """Count available models from OpenRouter API."""
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = f"{base_url}/{OpenRouterClientPaths.MODEL_COUNT.value}"
-
         sync_client: "OpenRouterClient" = _validate_request_attribute(self.client)
+
         return sync_client._request(RequestMethods.GET, path)
 
     async def acount(self) -> dict[str, Any]:
         """Asynchronously count available models from OpenRouter API."""
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = f"{base_url}/{OpenRouterClientPaths.MODEL_COUNT.value}"
-
         async_client: "AsyncOpenRouterClient" = _validate_arequest_attribute(
             self.client
         )
+
         return await async_client._arequest(RequestMethods.GET, path)
 
     def list_models(
         self,
-        category: list[CategoryInput] | None = None,
+        category: list[CategoryTypes] | None = None,
         supported_parameters: list[SupportedParameters] | None = None,
         use_rss_chat_links: bool = False,
     ) -> dict[str, Any]:
@@ -93,18 +91,17 @@ class ModelsResource:
         if use_rss_chat_links:
             params["use_rss_chat_links"] = "true"
 
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = (
             f"{base_url}/{OpenRouterClientPaths.LIST_MODELS_AND_PROPERTIES.value}"
         )
-
         sync_client: "OpenRouterClient" = _validate_request_attribute(self.client)
+
         return sync_client._request(RequestMethods.GET, path, params=params)
 
     async def alist_models(
         self,
-        category: list[CategoryInput] | None = None,
+        category: list[CategoryTypes] | None = None,
         supported_parameters: list[SupportedParameters] | None = None,
         use_rss_chat_links: bool = False,
     ) -> dict[str, Any]:
@@ -117,37 +114,34 @@ class ModelsResource:
         if use_rss_chat_links:
             params["use_rss_chat_links"] = "true"
 
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = (
             f"{base_url}/{OpenRouterClientPaths.LIST_MODELS_AND_PROPERTIES.value}"
         )
-
         async_client: "AsyncOpenRouterClient" = _validate_arequest_attribute(
             self.client
         )
+
         return await async_client._arequest(RequestMethods.GET, path, params=params)
 
     def embeddings(self) -> dict[str, Any]:
         """List available embedding models from OpenRouter API."""
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = (
             f"{base_url}/{OpenRouterClientPaths.LIST_ALL_EMBEDDING_MODELS.value}"
         )
-
         sync_client: "OpenRouterClient" = _validate_request_attribute(self.client)
+
         return sync_client._request(RequestMethods.GET, path)
 
     async def aembeddings(self) -> dict[str, Any]:
         """Asynchronously list available embedding models from OpenRouter API."""
-        base_url = _validate_base_url_attribute(self.client)
-
+        base_url: str = _validate_base_url_attribute(self.client)
         path: str = (
             f"{base_url}/{OpenRouterClientPaths.LIST_ALL_EMBEDDING_MODELS.value}"
         )
-
         async_client: "AsyncOpenRouterClient" = _validate_arequest_attribute(
             self.client
         )
+
         return await async_client._arequest(RequestMethods.GET, path)

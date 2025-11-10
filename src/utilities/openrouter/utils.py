@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
@@ -88,3 +89,23 @@ def _validate_response(client: Any, response: httpx.Response) -> dict[str, Any]:
         )
 
     return response.json()
+
+
+def get_openrouter_api_keys(api_key: str | None = None) -> str:
+    """Retrieve OpenRouter API keys from environment variables or configuration.
+
+    Parameters
+    ----------
+    api_key : str | None, optional
+        The OpenRouter API key. If None, the function will attempt to retrieve it from
+        environment variables.
+
+    Returns
+    -------
+        dict[str, str]
+            A dictionary containing the OpenRouter API key.
+    """
+
+    if api_key is not None:
+        return api_key
+    return os.getenv("OPENROUTER_API_KEY", "")

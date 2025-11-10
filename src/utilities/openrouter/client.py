@@ -3,20 +3,20 @@ from typing import Any
 import httpx
 
 from src.utilities.model_config import RemoteModel
-from src.utilities.openrouter.exceptions import (
-    OpenRouterError,
-)
 from src.utilities.openrouter.types import OpenRouterClientPaths, RequestMethods
-from src.utilities.openrouter.utils import _validate_response
+from src.utilities.openrouter.utils import _validate_response, get_openrouter_api_keys
 
 CONTENT_TYPE: str = "application/json"
 USER_AGENT: str = "openrouter_sdk/0.0.1"
 
 
+# ==============================================================================
+# ================================ SYNC CLIENT =================================
+# ==============================================================================
 class OpenRouterClient:
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
         base_url: str = OpenRouterClientPaths.BASE_URL.value,
         default_model: str = RemoteModel.GEMINI_2_0_FLASH_001.value,
         timeout: int = 20,
@@ -28,7 +28,7 @@ class OpenRouterClient:
             base_url=self.base_url,
             timeout=self.timeout,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {get_openrouter_api_keys(api_key)}",
                 "Content-Type": CONTENT_TYPE,
                 "user-agent": USER_AGENT,
             },
@@ -41,11 +41,21 @@ class OpenRouterClient:
         )
         from src.utilities.openrouter.resources.embeddings import EmbeddingsResource
         from src.utilities.openrouter.resources.models import ModelsResource
+        from src.utilities.openrouter.resources.others import (
+            CreditsResource,
+            GenerationMetadataResource,
+            ProvidersResource,
+            SupportedParametersResource,
+        )
 
         self.chat = ChatResource(client=self)
         self._completions = CompletionsResource(client=self)
         self.embeddings = EmbeddingsResource(client=self)
         self.models = ModelsResource(client=self)
+        self._generation_metadata = GenerationMetadataResource(client=self)
+        self.parameters = SupportedParametersResource(client=self)
+        self._providers = ProvidersResource(client=self)
+        self._credits = CreditsResource(client=self)
 
     def close(self) -> None:
         """Close the HTTP client session."""
@@ -69,8 +79,51 @@ class OpenRouterClient:
         model: str | None = None,
         **kwargs: dict[str, Any],
     ) -> dict[str, Any]:
-        """Get completions from OpenRouter API."""
+        """Get completions from OpenRouter API.
+
+        Parameters
+        ----------
+        prompt : str | list[str]
+            The prompt(s) for the completion.
+        model : str | None, optional
+            The model to use for completions. If None, the client's default model is used.
+        **kwargs : dict[str, Any]
+            Additional keyword arguments to pass to the API.
+
+        Returns
+        -------
+            dict[str, Any]
+                The response from the OpenRouter API containing the completions.
+        """
         return self._completions.completions(prompt=prompt, model=model, **kwargs)
+
+    def generation_metadata(self, id: str) -> dict[str, Any]:
+        """Get generation metadata resource.
+
+        Parameters
+        ----------
+        id : str
+            The ID of the generation to retrieve metadata for.
+
+        Returns
+        -------
+            dict[str, Any]
+                The response from the OpenRouter API containing the generation metadata.
+        """
+        return self._generation_metadata.get_metadata(id=id)
+
+    def list_providers(self) -> dict[str, Any]:
+        """List available providers from OpenRouter API."""
+        return self._providers.list_providers()
+
+    def get_credits_data(self) -> dict[str, Any]:
+        """Get credits data from OpenRouter API."""
+        return self._credits.get_credits_data()
+
+
+# ==============================================================================
+# ================================ ASYNC CLIENT ================================
+# ==============================================================================
 
 
 class AsyncOpenRouterClient:
@@ -88,7 +141,7 @@ class AsyncOpenRouterClient:
             base_url=self.base_url,
             timeout=self.timeout,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {get_openrouter_api_keys(api_key)}",
                 "Content-Type": CONTENT_TYPE,
                 "user-agent": USER_AGENT,
             },
@@ -101,11 +154,21 @@ class AsyncOpenRouterClient:
         )
         from src.utilities.openrouter.resources.embeddings import EmbeddingsResource
         from src.utilities.openrouter.resources.models import ModelsResource
+        from src.utilities.openrouter.resources.others import (
+            CreditsResource,
+            GenerationMetadataResource,
+            ProvidersResource,
+            SupportedParametersResource,
+        )
 
         self.chat = ChatResource(client=self)
         self._completions = CompletionsResource(client=self)
         self.embeddings = EmbeddingsResource(client=self)
         self.models = ModelsResource(client=self)
+        self._ageneration_metadata = GenerationMetadataResource(client=self)
+        self.parameters = SupportedParametersResource(client=self)
+        self._providers = ProvidersResource(client=self)
+        self._credits = CreditsResource(client=self)
 
     async def aclose(self) -> None:
         """Close the HTTP client session."""
@@ -125,35 +188,52 @@ class AsyncOpenRouterClient:
 
         return _validate_response(self, response)
 
+    async def acompletions(
+        self,
+        prompt: str | list[str],
+        model: str | None = None,
+        **kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Get completions from OpenRouter API.
 
-from src.config import app_settings  # noqa: E402
+        Parameters
+        ----------
+        prompt : str | list[str]
+            The prompt(s) for the completion.
+        model : str | None, optional
+            The model to use for completions. If None, the client's default model is used.
+        **kwargs : dict[str, Any]
+            Additional keyword arguments to pass to the API.
 
-# client = OpenRouterClient(api_key=app_settings.OPENROUTER_API_KEY.get_secret_value(), timeout=10)
-
-
-async def main() -> None:
-    """Main async function for testing."""
-    client = AsyncOpenRouterClient(
-        api_key=app_settings.OPENROUTER_API_KEY.get_secret_value(), timeout=10
-    )
-
-    try:
-        # res = client.chat.completions(
-        #     messages=[{"role": "user", "content": "Hello, how are you?"}]
-        # )
-        res = await client.embeddings.acreate(
-            input="Hello, how are you?", model="openai/text-embedding-3-small"
+        Returns
+        -------
+            dict[str, Any]
+                The response from the OpenRouter API containing the completions.
+        """
+        return await self._completions.acompletions(
+            prompt=prompt, model=model, **kwargs
         )
-        print(res)
-    except OpenRouterError as e:
-        print(f"An error occurred: {e}")
-    finally:
-        await client.aclose()
 
+    async def ageneration_metadata(self, id: str) -> dict[str, Any]:
+        """Get asynchronous generation metadata resource.
 
-if __name__ == "__main__":
-    # Example usage
+        Parameters
+        ----------
+        id : str
+            The ID of the generation to retrieve metadata for.
 
-    import asyncio
+        Returns
+        -------
+            dict[str, Any]
+                The response from the OpenRouter API containing the generation metadata.
 
-    asyncio.run(main())
+        """
+        return await self._ageneration_metadata.aget_metadata(id=id)
+
+    async def alist_providers(self) -> dict[str, Any]:
+        """Asynchronously list available providers from OpenRouter API."""
+        return await self._providers.alist_providers()
+
+    async def aget_credits_data(self) -> dict[str, Any]:
+        """Asynchronously get credits data from OpenRouter API."""
+        return await self._credits.aget_credits_data()
