@@ -20,6 +20,7 @@ class RemoteModel(str, Enum):
 
     GEMINI_2_0_FLASH_001 = "google/gemini-2.0-flash-001"
     GEMINI_2_5_FLASH = "google/gemini-2.5-flash"
+    GEMINI_2_5_FLASH_LITE = "google/gemini-2.5-flash-lite"
     GPT_OSS_120B = "openai/gpt-oss-120b"
     GPT_OSS_20B = "openai/gpt-oss-20b"
     GPT_5_NANO = "openai/gpt-5-nano"

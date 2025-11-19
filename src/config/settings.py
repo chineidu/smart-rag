@@ -23,6 +23,7 @@ class BaseSettingsConfig(BaseSettings):
         env_file_encoding="utf-8",
         from_attributes=True,
         populate_by_name=True,
+        str_strip_whitespace=True,
     )
 
 
@@ -34,8 +35,6 @@ class Settings(BaseSettingsConfig):
     FETCH_FULL_PAGE: bool = True
 
     # ===== REMOTE INFERENCE =====
-    # GROQ
-    GROQ_API_KEY: SecretStr = SecretStr("")
 
     # TOGETHER AI
     TOGETHER_API_KEY: SecretStr = SecretStr("")
@@ -48,18 +47,7 @@ class Settings(BaseSettingsConfig):
     # TAVILY
     TAVILY_API_KEY: SecretStr = SecretStr("")
 
-    # GOOGLE SERP
-    SERPER_API_KEY: SecretStr = SecretStr("")
-
-    # EXA
-    EXA_API_KEY: SecretStr = SecretStr("")
-
     # ===== OBSERVABILITY =====
-    # LANGFUSE
-    LANGFUSE_SECRET_KEY: SecretStr = SecretStr("")
-    LANGFUSE_PUBLIC_KEY: SecretStr = SecretStr("")
-    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
-
     # LANGFUSE
     LANGCHAIN_API_KEY: SecretStr = SecretStr("")
     LANGCHAIN_TRACING_V2: bool = True
