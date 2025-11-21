@@ -211,6 +211,7 @@ __marimo__/
 # Custom additions below
 # ========================
 **/**/note.*
+**/**/note*.*
 .DS_Store
 .vscode/
 **/**/data
