@@ -37,19 +37,22 @@ class Settings(BaseSettingsConfig):
     # ===== REMOTE INFERENCE =====
 
     # TOGETHER AI
-    TOGETHER_API_KEY: SecretStr = SecretStr("")
+    TOGETHER_API_KEY: SecretStr = SecretStr("your_api_key")
     TOGETHER_API_URL: str = "https://api.together.xyz/v1"
 
     # OPENROUTER
-    OPENROUTER_API_KEY: SecretStr = SecretStr("")
+    OPENROUTER_API_KEY: SecretStr = SecretStr("your_api_key")
     OPENROUTER_URL: str = "https://openrouter.ai/api/v1"
 
     # TAVILY
-    TAVILY_API_KEY: SecretStr = SecretStr("")
+    TAVILY_API_KEY: SecretStr = SecretStr("your_api_key")
+
+    # BRAVE SEARCH
+    BRAVE_SEARCH_API_KEY: SecretStr = SecretStr("your_api_key")
 
     # ===== OBSERVABILITY =====
     # LANGFUSE
-    LANGCHAIN_API_KEY: SecretStr = SecretStr("")
+    LANGCHAIN_API_KEY: SecretStr = SecretStr("your_api_key")
     LANGCHAIN_TRACING_V2: bool = True
     LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGCHAIN_PROJECT: str = "Smart-RAG"
@@ -57,7 +60,7 @@ class Settings(BaseSettingsConfig):
     # ===== VECTOR STORE =====
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_API_KEY: SecretStr = SecretStr("")
+    QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
 
 def refresh_settings() -> Settings:

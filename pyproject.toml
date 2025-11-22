@@ -30,6 +30,7 @@ dependencies = [
     "together>=1.5.29",
     "tokenizers>=0.22.1",
     "uvicorn>=0.38.0",
+    "uvloop>=0.22.1",
     "wikipedia>=1.4.0",
 ]
 
