@@ -36,6 +36,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "grandalf>=0.8",
     "jupyter>=1.1.1",
     "nb-black-formatter>=1.0.1",
     "pandas>=2.3.3",
