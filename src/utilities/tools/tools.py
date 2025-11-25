@@ -59,8 +59,10 @@ async def avector_search_tool(
 
 
 async def akeyword_search_tool(
-    query: str, filter: str | None = None, k: int = 3
-) -> list[Document]:  # noqa: ARG001
+    query: str,
+    filter: str | None = None,  # noqa: ARG001
+    k: int = 3,
+) -> list[Document]:
     """Perform keyword search asynchronously using BM25 and return top k documents.
 
     Parameters

@@ -1,8 +1,9 @@
-from pydantic.functional_validators import field_validator
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv  # type: ignore
 from pydantic import SecretStr  # type: ignore
+from pydantic.functional_validators import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict  # type: ignore
 
 
@@ -70,10 +71,11 @@ class Settings(BaseSettingsConfig):
 
     # ===== VECTOR STORE =====
     # Qdrant
-    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_HOST: str = "localhost"
+    QDRANT_PORT: int = 6333
     QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
-    @field_validator("PORT", mode="before")
+    @field_validator("POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before")
     @classmethod
     def parse_port_fields(cls, v: str | int) -> int:
         """Parses port fields to ensure they are integers."""
@@ -87,6 +89,85 @@ class Settings(BaseSettingsConfig):
             raise ValueError(f"Port must be between 1 and 65535, got {v}")
 
         return v
+
+    @field_validator("REDIS_DB", mode="before")
+    @classmethod
+    def parse_int_fields(cls, v: str | int) -> int:
+        """Parses int fields to ensure they are integers."""
+        if isinstance(v, str):
+            try:
+                return int(v.strip())
+            except ValueError:
+                raise ValueError(f"Invalid integer value: {v}") from None
+
+        return v
+
+    @property
+    def database_url(self) -> str:
+        """
+        Constructs the API database connection URL.
+
+        This is the database used for user authentication and API-specific tables.
+        It's separate from MLflow's database to avoid conflicts.
+
+        Returns
+        -------
+        str
+            Complete database connection URL in the format:
+            postgresql+psycopg2://user:password@host:port/dbname
+        """
+        password: str = quote(self.POSTGRES_PASSWORD.get_secret_value(), safe="")
+        url: str = (
+            f"postgresql+psycopg2://{self.POSTGRES_USER}"
+            f":{password}"
+            f"@{self.POSTGRES_HOST}"
+            f":{self.POSTGRES_PORT}"
+            f"/{self.POSTGRES_DB}"
+        )
+        return url
+
+    @property
+    def database_url_2(self) -> str:
+        """
+        Constructs the API database connection URL.
+
+        This is the database used for user authentication and API-specific tables.
+        It's separate from MLflow's database to avoid conflicts.
+
+        Returns
+        -------
+        str
+            Complete database connection URL in the format:
+            postgresql+psycopg2://user:password@host:port/dbname
+        """
+        password: str = quote(self.POSTGRES_PASSWORD.get_secret_value(), safe="")
+        url: str = (
+            f"postgresql+psycopg2://{self.POSTGRES_USER}"
+            f":{password}"
+            f"@{self.POSTGRES_HOST}"
+            f":{self.POSTGRES_PORT}"
+            f"/{self.API_DB_NAME}"
+        )
+        return url
+
+    @property
+    def redis_url(self) -> str:
+        """
+        Constructs the Redis connection URL.
+
+        Returns
+        -------
+        str
+            Complete Redis connection URL in the format:
+            redis://[:password@]host:port/db
+        """
+        raw_password = self.REDIS_PASSWORD.get_secret_value()
+        if raw_password:
+            password = quote(raw_password, safe="")
+            url: str = f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        else:
+            url = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return url
 
 
 def refresh_settings() -> Settings:

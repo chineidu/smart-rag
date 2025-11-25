@@ -24,6 +24,7 @@ from src.state import State
 
 logger = create_logger(name="graph_manager")
 
+# Constants
 INITIAL_RETRY_INTERVAL: float = 1.0
 MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
 DB_URI: str = (
