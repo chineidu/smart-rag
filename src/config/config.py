@@ -19,6 +19,19 @@ class CustomConfig(BaseSchema):
     """Configuration for other fields."""
 
     topics: list[str] = Field(description="List of acceptable topics for retrieval.")
+    fetch_full_page: bool = Field(
+        description="If True, fetch and parse full HTML content for each result."
+    )
+    k: int = Field(
+        5,
+        description="Number of top documents to retrieve per query before deduplication.",
+    )
+    max_chars: int | None = Field(
+        description="Maximum characters to return per result. If None, no truncation."
+    )
+    max_attempts: int = Field(
+        3, description="The maximum number of times to retry an operation."
+    )
 
 
 class CreativeModelConfig(BaseSchema):
@@ -49,6 +62,14 @@ class EmbeddingModelConfig(BaseSchema):
     model_name: str = Field(..., description="The name of the embedding model to use.")
 
 
+class CrossEncoderConfig(BaseSchema):
+    """Configuration for cross encoder model."""
+
+    model_name: str = Field(
+        ..., description="The name of the cross encoder model to use."
+    )
+
+
 class LLMModelConfig(BaseSchema):
     """Configuration for models."""
 
@@ -60,6 +81,9 @@ class LLMModelConfig(BaseSchema):
     )
     embedding_model: EmbeddingModelConfig = Field(
         description="Embedding model configuration."
+    )
+    cross_encoder_model: CrossEncoderConfig = Field(
+        description="Cross Encoder model configuration"
     )
 
 

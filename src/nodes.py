@@ -17,6 +17,7 @@ from schemas.nodes_schema import (
 )
 from schemas.types import NextAction, ToolsType
 from src import create_logger
+from src.config import app_config
 from src.schemas.types import RetrieverMethodType
 from src.state import State, StepState
 from src.utilities.llm_utils import remote_llm
@@ -34,6 +35,12 @@ from src.utilities.utils import (
 
 logger = create_logger("nodes")
 
+# Constants
+FETCH_FULL_PAGE: bool = app_config.custom_config.fetch_full_page
+K: int = app_config.custom_config.k
+MAX_CHARS: int | None = app_config.custom_config.max_chars
+MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
+
 type RetrieverFn = Callable[[str, str | None, int], Coroutine[Any, Any, list[Document]]]
 retrieval_method_dicts: dict[str, RetrieverFn] = {
     RetrieverMethodType.VECTOR_SEARCH: avector_search_tool,
@@ -41,7 +48,6 @@ retrieval_method_dicts: dict[str, RetrieverFn] = {
     RetrieverMethodType.HYBRID_SEARCH: ahybrid_search_tool,
 }
 prompt_builder = PromptsBuilder()
-
 section_titles: list[str] = [
     "ITEM 1. BUSINESS",
     "ITEM 1A. RISK FACTORS",
@@ -306,7 +312,7 @@ async def validate_query_node(state: State) -> dict[str, Any]:
     dict[str, Any]
         Updated state with validation results.
     """
-    topics: str = "NVIDIA's financial performance, form 10-K internal documents, news related to NVIDIA, and industry trends, "
+    topics: str = " | ".join(app_config.custom_config.topics)
     user_question: str = state["original_question"]
     user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
     sys_msg = prompt_builder.query_validation_prompt(topics=topics)
@@ -384,7 +390,6 @@ async def generate_plan_node(state: State) -> dict[str, Any]:
 @traceable
 async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
     """Retrieve internal documents node."""
-    k: int = 5
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
@@ -412,7 +417,7 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
         method=retriever_method.method,
         rewritten_queries=rewritten_queries,
         target_section=current_step.target_section,
-        k=k,
+        k=K,
     )
     step_state = StepState(
         step_index=current_step_idx,
@@ -442,7 +447,6 @@ async def internet_search_node(state: State) -> dict[str, Any]:
     dict[str, Any]
         The retrieved documents
     """
-    k: int = 5
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
@@ -461,9 +465,9 @@ async def internet_search_node(state: State) -> dict[str, Any]:
     tasks: list[Coroutine[Any, Any, list[Document]]] = [
         atavily_web_search_tool(
             query=query,
-            fetch_full_page=False,
-            k=k,
-            max_chars=None,
+            fetch_full_page=FETCH_FULL_PAGE,
+            k=K,
+            max_chars=MAX_CHARS,
         )
         for query in rewritten_queries
     ]

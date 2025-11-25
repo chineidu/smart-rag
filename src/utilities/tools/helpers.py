@@ -21,6 +21,7 @@ from tokenizers import (
     models as t_models,
 )
 
+from config.config import app_config
 from src import create_logger
 from src.config import app_settings
 from src.utilities.client import HTTPXClient
@@ -214,7 +215,7 @@ def rerank_documents(
     list[Document]
         Documents sorted by relevance score in descending order.
     """
-    reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    reranker = CrossEncoder(app_config.llm_model_config.cross_encoder_model.model_name)
     # Prepare pairs of (query, document content) for scoring
     pairs: list[tuple[str, str]] = [(query, doc.page_content) for doc in documents]
     # Get relevance scores from the CrossEncoder
@@ -332,7 +333,8 @@ async def afetch_raw_content(url: str) -> str | None:
     """
     # Browser-like headers to avoid bot detection
     headers: dict[str, str] = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",

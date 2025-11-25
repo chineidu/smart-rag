@@ -1725,6 +1725,21 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-checkpoint-postgres"
+version = "3.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langgraph-checkpoint" },
+    { name = "orjson" },
+    { name = "psycopg" },
+    { name = "psycopg-pool" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/00/5e/c96bbded68a72757607e653c0f9cfaa02078da17e0999626f3c1ddc65ce9/langgraph_checkpoint_postgres-3.0.1.tar.gz", hash = "sha256:4ff0f04a70ce8f5b49d373f521eba97ccf0bb61181de1535e5d91e99db2ce7da", size = 113134, upload-time = "2025-11-06T16:21:47.855Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/01/5a5de9187f8a7f55fa546eb815fbeb4a41b10688d9a77b84224cb98ae0de/langgraph_checkpoint_postgres-3.0.1-py3-none-any.whl", hash = "sha256:f79eb588b328f05d715c7ed35d20895cd0a126b524f95edbbebedc4a595f43dd", size = 40914, upload-time = "2025-11-06T16:21:46.303Z" },
+]
+
+[[package]]
 name = "langgraph-prebuilt"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2947,6 +2962,31 @@ wheels = [
 ]
 
 [[package]]
+name = "psycopg"
+version = "3.2.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/05/d4a05988f15fcf90e0088c735b1f2fc04a30b7fc65461d6ec278f5f2f17a/psycopg-3.2.13.tar.gz", hash = "sha256:309adaeda61d44556046ec9a83a93f42bbe5310120b1995f3af49ab6d9f13c1d", size = 160626, upload-time = "2025-11-21T22:34:32.328Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/14/f2724bd1986158a348316e86fdd0837a838b14a711df3f00e47fba597447/psycopg-3.2.13-py3-none-any.whl", hash = "sha256:a481374514f2da627157f767a9336705ebefe93ea7a0522a6cbacba165da179a", size = 206797, upload-time = "2025-11-21T22:29:39.733Z" },
+]
+
+[[package]]
+name = "psycopg-pool"
+version = "3.2.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/20/10064379ed363b7a2a6da3aca986a668c792a8145d7344854ab14c7d7292/psycopg_pool-3.2.8.tar.gz", hash = "sha256:854e17c2a637c3b9f8d8b24faad57d4cf850baf3fc03ca56ef7e5b4998e391b9", size = 29956, upload-time = "2025-11-21T22:34:35.453Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/5f/947b4b4e51d67c4c9e97626c815caa9b241a62fd66ddd0d00a4a572013f5/psycopg_pool-3.2.8-py3-none-any.whl", hash = "sha256:5474137f3a58e697e0141d0311e70ec067fc4466031496d7f9ef3e2c28a1dc09", size = 38507, upload-time = "2025-11-21T22:34:31Z" },
+]
+
+[[package]]
 name = "ptyprocess"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3809,6 +3849,7 @@ dependencies = [
     { name = "langchain-qdrant" },
     { name = "langchain-tavily" },
     { name = "langgraph" },
+    { name = "langgraph-checkpoint-postgres" },
     { name = "langmem" },
     { name = "markdownify" },
     { name = "omegaconf" },
@@ -3853,6 +3894,7 @@ requires-dist = [
     { name = "langchain-qdrant", specifier = ">=1.1.0" },
     { name = "langchain-tavily", specifier = ">=0.2.12" },
     { name = "langgraph", specifier = ">=1.0.1" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.1" },
     { name = "langmem", specifier = ">=0.0.30" },
     { name = "markdownify", specifier = ">=1.2.0" },
     { name = "omegaconf", specifier = ">=2.3.0" },
