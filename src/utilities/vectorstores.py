@@ -1,4 +1,4 @@
-from glob import glob
+import asyncio
 
 from langchain_core.documents.base import Document
 from langchain_core.embeddings import Embeddings
@@ -7,249 +7,214 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-from src import PACKAGE_PATH, create_logger
-from src.config import app_config, app_settings
-from src.utilities.embeddings import TogetherEmbeddings
-from src.utilities.utils import load_pdf_doc
+from schemas.types import FileFormatsType
+from src import create_logger
+from utilities.utils import (
+    chunk_data_by_sections,
+    extract_10k_sections,
+    load_all_documents,
+)
 
 logger = create_logger("vectorstores")
 
 
-def text_split_documents(docs: list[Document]) -> list[Document]:
-    """
-    Split a list of Document objects into smaller character-based chunks.
-
-    Parameters
-    ----------
-    docs : list[Document]
-        List of documents to split. Each item should be a Document containing textual content
-        (for example via a `page_content` or `text` attribute). Original document metadata is
-        preserved and propagated to resulting chunks.
-
-    Returns
-    -------
-    list[Document]
-    """
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,  # chunk size (characters)
-        chunk_overlap=50,  # chunk overlap (characters)
-        add_start_index=True,  # track index in original document
-    )
-    return text_splitter.split_documents(docs)
-
-
-def setup_vectorstore(
-    filepaths: str | list[str],
-    embeddings: Embeddings,
-    client: QdrantClient,
-    collection: str,
-    filepaths_is_glob: bool = False,
-) -> tuple[QdrantVectorStore, list[Document]]:
-    """
-    Set up a Qdrant vector store from one or more PDF filepaths using the provided embeddings and client.
-
-    Parameters
-    ----------
-    filepaths : str or list of str
-        Path to a single PDF file or a list of paths. If a single string is provided, it will be
-        wrapped into a list internally. Each filepath is processed by `load_pdf_doc` to produce
-        document objects to be indexed.
-    embeddings : Embeddings
-        Embeddings implementation used to compute vector dimensionality and to encode documents
-        for storage. The dimensionality is inferred by calling `embeddings.embed_query("sample text")`.
-    client : QdrantClient
-        Qdrant client instance used to query and create collections. If the specified collection
-        does not exist, a collection will be created on the client with vector parameters derived
-        from the embeddings.
-    collection : str
-        Name of the Qdrant collection to use or create.
-    filepaths_is_glob : bool, default=False
-        If True, treat `filepaths` as a glob pattern to match multiple PDF files.
-
-    Returns
-    -------
-    tuple[QdrantVectorStore, list[Document]]
-    """
-    if filepaths_is_glob:
-        if isinstance(filepaths, list):
-            # If already a list, glob each path
-            all_files = []
-            for fp in filepaths:
-                all_files.extend(glob(f"{fp}/*.pdf"))
-            filepaths = all_files
-        else:
-            # If single string, glob it directly
-            filepaths = glob(f"{filepaths}/*.pdf")
-    elif isinstance(filepaths, str):
-        filepaths = [filepaths]
-
-    docs: list[Document] = [
-        doc for fp in filepaths for doc in load_pdf_doc(filepath=fp)
-    ]
-    logger.info(f"Loaded {len(docs)} documents from {len(filepaths)} filepaths.")
-
-    vector_size: int = len(embeddings.embed_query("sample text"))
-
-    if not client.collection_exists(collection):
-        client.create_collection(
-            collection_name=collection,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-    vectorstore = QdrantVectorStore(
-        client=client, collection_name=collection, embedding=embeddings
-    )
-    logger.info(
-        f"Qdrant vector store set up with collection {collection!r} and vector size {vector_size}"
-    )
-    return (vectorstore, docs)
-
-
-def embed_and_store_documents(
-    vectorstore: QdrantVectorStore, docs: list[Document]
-) -> QdrantVectorStore:
-    """
-    Embed and store documents in the vector store.
-
-    Parameters
-    ----------
-    vectorstore : QdrantVectorStore
-        The vector store instance to add documents to (modified in-place).
-    docs : list[Document]
-        Documents to embed and store.
-
-    Returns
-    -------
-    QdrantVectorStore
-        The same vectorstore instance (for method chaining).
-    """
-    vectorstore.add_documents(documents=docs)
-    logger.info(f"Embedded and stored {len(docs)} documents.")
-    return vectorstore
-
-
 class VectorStoreSetup:
-    def __init__(
+    def __init__(self) -> None:
+        self._vectorstore: QdrantVectorStore | None = None
+        self._initialized: bool = False
+        self._documents: list[Document] | None = None
+        # Use an asyncio.Lock to avoid blocking the event loop during async initialization
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    def get_vectorstore(self) -> QdrantVectorStore | None:
+        """Return the cached vector store instance if initialized.
+
+        Returns
+        -------
+        QdrantVectorStore | None
+            The cached vector store instance or None if not yet set up.
+        """
+        return self._vectorstore
+
+    def get_documents(self) -> list[Document] | None:
+        """Return the cached documents if available.
+
+        Returns
+        -------
+        list[Document] | None
+            The cached list of Document objects or None if not yet set.
+        """
+        return self._documents
+
+    def chunk_documents(
         self,
-        collection_name: str,
-        filepaths: str | list[str],
-        embeddings: Embeddings,
-        client: QdrantClient,
-        filepaths_is_glob: bool = False,
-    ) -> None:
-        """Class to set up and manage a Qdrant vector store with document embedding and storage.
+        docs: list[Document],
+        source: str | None = None,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 100,
+        add_start_index: bool = True,
+        split_by_sections: bool = False,
+    ) -> list[Document]:
+        """
+        Split a list of Document objects into smaller character-based chunks.
 
         Parameters
         ----------
-        collection_name : str
-            Name of the Qdrant collection to use or create.
-        filepaths : str or list of str
-            Path to a single PDF file or a list of paths.
-        embeddings : Embeddings
+        docs : list[Document]
+            List of documents to split. Each item should be a Document containing textual content
+            (for example via a `page_content` or `text` attribute). Original document metadata is
+            preserved and propagated to resulting chunks.
+        source : str
+            Source identifier to be used in section-based chunking.
+        chunk_size : int, default=1000
+            Maximum number of characters per chunk.
+        chunk_overlap : int, default=100
+            Number of overlapping characters between consecutive chunks.
+        add_start_index : bool, default=True
+            Whether to add a `start_index` field in metadata to track original position.
+        split_by_sections : bool, default=False
+            If True, split documents based on extracted sections; otherwise, use character-based splitting.
+
+        Returns
+        -------
+        list[Document]
+        """
+        if split_by_sections:
+            if source is None:
+                raise ValueError(
+                    "Source must be provided when split_by_sections is True."
+                )
+
+            section_titles, section_content = extract_10k_sections(docs)
+            return chunk_data_by_sections(
+                source=source,
+                section_titles=section_titles,
+                section_content=section_content,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                add_start_index=add_start_index,
+            )
+
+        return RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,  # chunk size (characters)
+            chunk_overlap=chunk_overlap,  # chunk overlap (characters)
+            add_start_index=add_start_index,  # track index in original document
+        ).split_documents(docs)
+
+    async def setup_vectorstore(
+        self,
+        filepaths: str | list[str],
+        jq_schema: str | None,
+        format: FileFormatsType,
+        embedding_model: Embeddings,
+        client: QdrantClient,
+        collection: str,
+        filepaths_is_glob: bool = False,
+    ) -> QdrantVectorStore | None:
+        """Set up a Qdrant vector store with embedded documents.
+
+        Parameters
+        ----------
+        filepaths : str or list[str]
+            Path to a single file or a list of paths.
+        jq_schema : str or None
+            JQ schema to apply when loading documents.
+        format : FileFormatsType
+            Format of the files to be loaded.
+        embedding_model : Embeddings
             Embeddings implementation used for document encoding.
         client : QdrantClient
             Qdrant client instance for collection management.
-        filepaths_is_glob : bool, default=False
-            If True, treat `filepaths` as a glob pattern to match multiple PDF files.
+        collection : str
+            Name of the Qdrant collection to use or create.
+        filepaths_is_glob : bool, optional
+            If True, treat `filepaths` as a glob pattern to match multiple files, by default False
+        Returns
+        -------
+        QdrantVectorStore
+            Qdrant vector store instance with embedded documents.
         """
-        self.collection_name: str = collection_name
-        self.filepaths: str | list[str] = filepaths
-        self.embeddings: Embeddings = embeddings
-        self.client: QdrantClient = client
-        self.filepaths_is_glob: bool = filepaths_is_glob
-        self._docs: list[Document] | None = None
-        self._vectorstore: QdrantVectorStore | None = None
+        try:
+            # If already initialized and cached, reuse
+            if self._initialized and self._vectorstore:
+                return self._vectorstore
 
-    def setup(self) -> None:
-        """Set up the vector store and load documents."""
-        self._vectorstore, self._docs = setup_vectorstore(
-            filepaths=self.filepaths,
-            embeddings=self.embeddings,
-            client=self.client,
-            collection=self.collection_name,
-            filepaths_is_glob=self.filepaths_is_glob,
-        )
+            async with self._lock:  # Ensure coroutine-safe initialization
+                # Load and embed documents, then cache the vector store
+                docs: list[Document] = load_all_documents(
+                    filepaths=filepaths,
+                    jq_schema=jq_schema,
+                    format=format,
+                    filepaths_is_glob=filepaths_is_glob,
+                )
+                vector_size: int = len(embedding_model.embed_query("sample text"))
 
-    def embed_and_store(self) -> QdrantVectorStore:
-        """Embed and store documents in the vector store."""
-        if self._docs is None:
-            raise ValueError("Documents are not loaded. Call setup() first.")
-        split_docs = text_split_documents(docs=self._docs)
+                if not client.collection_exists(collection):
+                    client.create_collection(
+                        collection_name=collection,
+                        vectors_config=VectorParams(
+                            size=vector_size, distance=Distance.COSINE
+                        ),
+                    )
 
-        if self._vectorstore is None:
-            raise ValueError("Vector store is not set up. Call setup() first.")
+                vectorstore = QdrantVectorStore(
+                    client=client, collection_name=collection, embedding=embedding_model
+                )
+                self._vectorstore = await self._aembed_and_store_documents(
+                    vectorstore, docs
+                )
+                self._documents = docs
+                self._initialized = True
+                logger.info(
+                    f"Qdrant vector store set up with collection {collection!r} and vector size {vector_size}"
+                )
+                return self._vectorstore
 
-        return embed_and_store_documents(self._vectorstore, split_docs)
+        except Exception as e:
+            logger.error(f"Error setting up vectorstore: {e}")
+            return None
 
-    def get_vectorstore(self) -> QdrantVectorStore:
-        """Get the Qdrant vector store instance."""
-        if self._vectorstore is None:
-            raise ValueError("Vector store is not set up. Call setup() first.")
-        return self._vectorstore
+    async def _aembed_and_store_documents(
+        self, vectorstore: QdrantVectorStore, docs: list[Document]
+    ) -> QdrantVectorStore:
+        """
+        Embed and store documents in the vector store.
 
+        Parameters
+        ----------
+        vectorstore : QdrantVectorStore
+            The vector store instance to add documents to (modified in-place).
+        docs : list[Document]
+            Documents to embed and store.
 
-def initialize_vectorstores() -> tuple[QdrantVectorStore, QdrantVectorStore]:
-    """
-    Initialize AI news and football news vector stores.
+        Returns
+        -------
+        QdrantVectorStore
+            The same vectorstore instance (for method chaining).
+        """
+        await vectorstore.aadd_documents(documents=docs)
+        logger.info(f"Embedded and stored {len(docs)} documents.")
 
-    Returns
-    -------
-    tuple[QdrantVectorStore, QdrantVectorStore]
-        A tuple containing (ai_vectorstore, football_vectorstore).
+        return vectorstore
 
-    Raises
-    ------
-    Exception
-        If vectorstore initialization fails for either collection.
-    """
-    embeddings = TogetherEmbeddings(
-        together_api_key=app_settings.TOGETHER_API_KEY,
-        model=app_config.llm_model_config.embedding_model.model_name,
-    )
-    # TODO: Replace with actual Qdrant client connection parameters
-    # For demonstration, using in-memory Qdrant client
-    client = QdrantClient(":memory:")
+    def is_ready(self) -> bool:
+        """Check if the vector store setup is complete.
 
-    # AI news vector store setup
-    filepath: str = str(
-        PACKAGE_PATH / app_config.vectorstore_config.ai_config.filepaths
-    )
-    ai_news_vectorstore_setup = VectorStoreSetup(
-        collection_name="ai_news",
-        filepaths=filepath,
-        embeddings=embeddings,
-        client=client,
-        filepaths_is_glob=True,
-    )
-    ai_news_vectorstore_setup.setup()
-    vectorstore_ai: QdrantVectorStore = ai_news_vectorstore_setup.embed_and_store()
-    logger.info("AI news vector store setup complete.")
+        Returns
+        -------
+        bool
+            True if the vector store is initialized; False otherwise.
+        """
+        return self._initialized and self._vectorstore is not None
 
-    # Football news vector store setup
-    filepath = str(
-        PACKAGE_PATH / app_config.vectorstore_config.football_config.filepaths
-    )
-    football_news_vectorstore_setup = VectorStoreSetup(
-        collection_name="football_news",
-        filepaths=filepath,
-        embeddings=embeddings,
-        client=client,
-        filepaths_is_glob=True,
-    )
-    football_news_vectorstore_setup.setup()
-    vectorstore_football: QdrantVectorStore = (
-        football_news_vectorstore_setup.embed_and_store()
-    )
-    logger.info("Football news vector store setup complete.")
+    async def close(self) -> None:
+        """Asynchronously close and clean up vector store resources.
 
-    return (vectorstore_ai, vectorstore_football)
-
-
-# Module-level instances initialized on import
-vectorstore_ai: QdrantVectorStore
-vectorstore_football: QdrantVectorStore
-
-try:
-    vectorstore_ai, vectorstore_football = initialize_vectorstores()
-except Exception as e:
-    logger.error(f"Failed to initialize vector stores: {e}", exc_info=True)
-    raise
+        Use this method to ensure the close runs under the same async lock that guards
+        initialization to avoid race conditions.
+        """
+        async with self._lock:
+            if self._initialized:
+                logger.info("Closing vector store resources...")
+                self._vectorstore = None
+                self._initialized = False

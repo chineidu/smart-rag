@@ -1,25 +1,21 @@
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.types import RetryPolicy
 
+from schemas.types import NextAction, ToolsType
 from src.nodes import (
-    answer_node,
-    check_hallucination_node,
-    classify_query_node,
-    failed_node,
-    generate_response,
-    generate_web_search_response,
-    grade_documents,
-    llm_call_node,
-    retrieve_documents,
-    rewrite_query,
-    should_continue_to_final_answer,
-    should_continue_to_generate,
-    should_continue_to_retrieve,
+    final_answer_node,
+    generate_plan_node,
+    internet_search_node,
+    rerank_and_compress_node,
+    retrieve_internal_docs_node,
+    route_by_tool_condition,
+    should_continue_condition,
+    summarization_node,
+    unrelated_query_node,
+    validate_query_node,
 )
 from src.state import State
-from src.utilities.tools import search_tool
 
 MAX_RETRIES: int = 3
 INITIAL_RETRY_INTERVAL: float = 1.0
@@ -33,92 +29,96 @@ def build_graph() -> CompiledStateGraph:
     # ============= Add nodes =============
     # =====================================
 
-    tool_node = ToolNode([search_tool])
+    builder.add_node(
+        "validate_query",
+        validate_query_node,
+        retry_policy=RetryPolicy(
+            max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
+        ),
+    )
+    builder.add_node(
+        "unrelated_query",
+        unrelated_query_node,
+        retry_policy=RetryPolicy(
+            max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
+        ),
+    )
 
     builder.add_node(
-        "query_analysis",
-        classify_query_node,
+        "generate_plan",
+        generate_plan_node,
         retry_policy=RetryPolicy(
             max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
         ),
     )
     builder.add_node(
-        "tools",
-        tool_node,
-        retry_policy=RetryPolicy(
-            max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
-        ),
-    )
-    builder.add_node("llm_call_node", llm_call_node)
-    builder.add_node("retrieve", retrieve_documents)
-    builder.add_node(
-        "grade",
-        grade_documents,
+        "retrieve_internal_docs",
+        retrieve_internal_docs_node,
         retry_policy=RetryPolicy(
             max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
         ),
     )
     builder.add_node(
-        "generate",
-        generate_response,
+        "internet_search",
+        internet_search_node,
         retry_policy=RetryPolicy(
             max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
         ),
     )
     builder.add_node(
-        "rewrite",
-        rewrite_query,
+        "rerank_and_compress",
+        rerank_and_compress_node,
+        retry_policy=RetryPolicy(
+            max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
+        ),
+    )
+
+    builder.add_node(
+        "summarize",
+        summarization_node,
         retry_policy=RetryPolicy(
             max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
         ),
     )
     builder.add_node(
-        "check_hallucination",
-        check_hallucination_node,
+        "final_answer",
+        final_answer_node,
         retry_policy=RetryPolicy(
             max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
         ),
     )
-    builder.add_node(
-        "web_search_response",
-        generate_web_search_response,
-        retry_policy=RetryPolicy(
-            max_attempts=MAX_RETRIES, initial_interval=INITIAL_RETRY_INTERVAL
-        ),
-    )
-    builder.add_node("answer", answer_node)
-    builder.add_node("failed", failed_node)
 
     # =====================================
     # ============= Add edges =============
     # =====================================
-    builder.add_edge(START, "query_analysis")
+    builder.add_edge(START, "validate_query")
     builder.add_conditional_edges(
-        "query_analysis",
-        should_continue_to_retrieve,
-        {"retrieve": "retrieve", "web_search": "llm_call_node"},
+        "validate_query",
+        should_continue_condition,
+        {
+            NextAction.CONTINUE: "generate_plan",
+            NextAction.FINISH: "unrelated_query",
+        },
     )
     builder.add_conditional_edges(
-        "llm_call_node",
-        tools_condition,
-        {"tools": "tools", END: "failed"},
+        "generate_plan",
+        route_by_tool_condition,  # function to determine which tool to use
+        {
+            ToolsType.VECTOR_STORE: "retrieve_internal_docs",
+            ToolsType.WEB_SEARCH: "internet_search",
+        },
     )
-    builder.add_edge("tools", "web_search_response")
-    builder.add_edge("web_search_response", END)
-    builder.add_edge("retrieve", "grade")
+
+    builder.add_edge("retrieve_internal_docs", "rerank_and_compress")
+    builder.add_edge("internet_search", "rerank_and_compress")
+    builder.add_edge("rerank_and_compress", "summarize")
     builder.add_conditional_edges(
-        "grade",
-        should_continue_to_generate,
-        {"generate": "generate", "rewrite": "rewrite", "failed": "failed"},
+        "summarize",
+        should_continue_condition,  # function to determine next action
+        {NextAction.CONTINUE: "generate_plan", NextAction.FINISH: "final_answer"},
     )
-    builder.add_edge("generate", "check_hallucination")
-    builder.add_conditional_edges(
-        "check_hallucination",
-        should_continue_to_final_answer,
-        {"answer": "answer", "rewrite": "rewrite", "failed": "failed"},
-    )
-    builder.add_edge("answer", END)
-    builder.add_edge("rewrite", "retrieve")
+    builder.add_edge("final_answer", END)
+    builder.add_edge("unrelated_query", END)
 
     # Compile the graph
     return builder.compile()

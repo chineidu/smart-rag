@@ -12,11 +12,20 @@ from pydantic import (
     model_validator,
 )
 
+from src.utilities.openrouter.client import AsyncOpenRouterClient, OpenRouterClient
+
 
 def set_together_api(value: str | None = None) -> SecretStr:
     """Set the Together API key"""
     if value is None:
         return convert_to_secret_str(os.getenv("TOGETHER_API_KEY", ""))
+    return convert_to_secret_str(value)
+
+
+def set_openrouter_api(value: str | None = None) -> SecretStr:
+    """Set the OpenRouter API key"""
+    if value is None:
+        return convert_to_secret_str(os.getenv("OPENROUTER_API_KEY", ""))
     return convert_to_secret_str(value)
 
 
@@ -55,3 +64,63 @@ class TogetherEmbeddings(BaseModel, Embeddings):
     def embed_query(self, text: str) -> list[float]:
         """Embed query text."""
         return self.embed_documents([text])[0]
+
+
+class OpenRouterEmbeddings(BaseModel, Embeddings):
+    """Using Field with default_factory for automatic client creation."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    client: OpenRouterClient = Field(default_factory=OpenRouterClient)
+    aclient: AsyncOpenRouterClient = Field(default_factory=AsyncOpenRouterClient)
+
+    openrouter_api_key: SecretStr = Field(default_factory=set_openrouter_api)
+    model: str = Field(default="openai/text-embedding-3-small")
+
+    @model_validator(mode="after")
+    def validate_environment(self) -> "OpenRouterEmbeddings":
+        """Validate the environment and set up the OpenRouter client."""
+        _api_key: SecretStr | str = self.openrouter_api_key or os.getenv(
+            "OPENROUTER_API_KEY", ""
+        )
+        if not _api_key:
+            raise ValueError(
+                "OpenRouter API key not found. Please set the OPENROUTER_API_KEY environment variable."
+            )
+
+        if isinstance(_api_key, str):
+            _api_key = convert_to_secret_str(_api_key)
+
+        # Set up the OpenRouter client if not already set
+        self.client = OpenRouterClient(
+            api_key=_api_key.get_secret_value(),  # type: ignore
+            default_model=self.model,
+        )
+        self.aclient = AsyncOpenRouterClient(
+            api_key=_api_key.get_secret_value(),  # type: ignore
+            default_model=self.model,
+        )
+        return self
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed search docs."""
+        response: dict[str, Any] = self.client.embeddings.create(
+            input=texts, model=self.model
+        )
+        return [emb["embedding"] for emb in response["data"]]
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed query text."""
+        return self.embed_documents([text])[0]
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed search docs."""
+        response: dict[str, Any] = await self.aclient.aembeddings.create(
+            input=texts, model=self.model
+        )
+
+        return [emb["embedding"] for emb in response["data"]]
+
+    async def aembed_query(self, text: str) -> list[float]:
+        """Embed query text."""
+        return (await self.aembed_documents([text]))[0]

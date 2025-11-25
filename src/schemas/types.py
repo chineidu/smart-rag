@@ -1,19 +1,32 @@
-from enum import Enum
+from enum import StrEnum
 
 
-# ==================================================================
-# ============================= TYPES ==============================
-# ==================================================================
-class YesOrNo(str, Enum):
-    YES = "yes"
-    NO = "no"
+class RetrieverMethodType(StrEnum):
+    """The type of retrieval method to use for internal document search."""
+
+    VECTOR_SEARCH = "vector_search"
+    KEYWORD_SEARCH = "keyword_search"
+    HYBRID_SEARCH = "hybrid_search"
 
 
-class DataSource(str, Enum):
-    VECTORSTORE = "vectorstore"
-    WEBSEARCH = "websearch"
+class ToolsType(StrEnum):
+    """The type of tool to use for each step."""
+
+    VECTOR_STORE = "vector_store"
+    WEB_SEARCH = "web_search"
 
 
-class VectorSearchType(str, Enum):
-    FOOTBALL = "football news"  # "(arsenal news | chelsea news | liverpool news)"
-    AI = "ai news"  # "(ai news | ai browser | nvidia | openai| tech in china)"
+class NextAction(StrEnum):
+    """Tells the executor what to do after the current planning step."""
+
+    CONTINUE = "continue"
+    FINISH = "finish"
+
+
+class FileFormatsType(StrEnum):
+    """The type of file to process."""
+
+    CSV = "csv"
+    JSON = "json"
+    TXT = "txt"
+    PDF = "pdf"

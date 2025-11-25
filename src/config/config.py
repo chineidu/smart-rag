@@ -9,25 +9,16 @@ from src import PACKAGE_PATH
 from src.schemas import BaseSchema
 
 
-class FootballConfig(BaseSchema):
-    """Configuration  for football news data source."""
+class VectorStoreConfig(BaseSchema):
+    """Configuration for vector store."""
 
     filepaths: str = Field(..., description="Path to the football news data directory.")
 
 
-class AIConfig(BaseSchema):
-    """Configuration  for AI news data source."""
+class CustomConfig(BaseSchema):
+    """Configuration for other fields."""
 
-    filepaths: str = Field(..., description="Path to the AI news data directory.")
-
-
-class VectorStoreConfig(BaseSchema):
-    """Configuration for vector store."""
-
-    football_config: FootballConfig = Field(
-        description="Football news vector store configuration."
-    )
-    ai_config: AIConfig = Field(description="AI news vector store configuration.")
+    topics: list[str] = Field(description="List of acceptable topics for retrieval.")
 
 
 class CreativeModelConfig(BaseSchema):
@@ -37,21 +28,19 @@ class CreativeModelConfig(BaseSchema):
     temperature: float = Field(
         0.7, description="The temperature setting for the creative LLM."
     )
-    max_tokens: int = Field(
-        1024, description="The maximum number of tokens for the creative LLM response."
+    seed: int = Field(42, description="The random seed for the creative LLM.")
+
+
+class StructuredOutputModelConfig(BaseSchema):
+    """Configuration for structured output model."""
+
+    model_name: str = Field(
+        ..., description="The name of the structured output LLM to use."
     )
-
-
-class ClassifierModelConfig(BaseSchema):
-    """Configuration for classifier model."""
-
-    model_name: str = Field(..., description="The name of the classifier LLM to use.")
     temperature: float = Field(
-        0.0, description="The temperature setting for the classifier LLM."
+        0.0, description="The temperature setting for the structured output LLM."
     )
-    max_tokens: int = Field(
-        512, description="The maximum number of tokens for the classifier LLM response."
-    )
+    seed: int = Field(42, description="The random seed for the structured output LLM.")
 
 
 class EmbeddingModelConfig(BaseSchema):
@@ -66,8 +55,8 @@ class LLMModelConfig(BaseSchema):
     creative_model: CreativeModelConfig = Field(
         description="Creative model configuration."
     )
-    classifier_model: ClassifierModelConfig = Field(
-        description="Classifier model configuration."
+    structured_output_model: StructuredOutputModelConfig = Field(
+        description="Structured output model configuration."
     )
     embedding_model: EmbeddingModelConfig = Field(
         description="Embedding model configuration."
@@ -80,6 +69,7 @@ class AppConfig(BaseSchema):
     vectorstore_config: VectorStoreConfig = Field(
         description="Vector store configurations."
     )
+    custom_config: CustomConfig = Field(description="Custom configurations")
     llm_model_config: LLMModelConfig = Field(description="LLM model configurations.")
 
 

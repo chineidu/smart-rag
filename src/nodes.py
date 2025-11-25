@@ -1,341 +1,687 @@
-from typing import Any, Literal
+import asyncio
+import json
+from typing import Any, Callable, Coroutine, cast
 
 from langchain_core.documents.base import Document
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_qdrant import QdrantVectorStore
+from langsmith import traceable
 
-from prompts import (
-    hallucination_prompt,
-    query_analysis_prompt,
-    query_n_response_prompt,
-    query_n_retrieved_docs_prompt,
-    query_rewriter_prompt,
-    rag_response_generator_prompt,
-    retrieval_grading_prompt,
-    vectorstore_routing_prompt,
-    websearch_prompt,
+from prompts import PromptsBuilder
+from schemas.nodes_schema import (
+    Decision,
+    Plan,
+    RetrieverMethod,
+    ReWrittenQuery,
+    Step,
+    ValidateQuery,
 )
-from schemas.input_schema import (
-    GradeRetrievalSchema,
-    HallucinationSchema,
-    RouteQuerySchema,
-    VectorSearchTypeSchema,
-)
-from schemas.types import DataSource, VectorSearchType, YesOrNo
+from schemas.types import NextAction, ToolsType
 from src import create_logger
-from src.state import State
-from src.utilities.llm_utils import classifier_model, remote_llm
-from src.utilities.tools import search_tool
+from src.schemas.types import RetrieverMethodType
+from src.state import State, StepState
+from src.utilities.llm_utils import remote_llm
+from src.utilities.tools.tools import (
+    ahybrid_search_tool,
+    akeyword_search_tool,
+    arerank_documents,
+    atavily_web_search_tool,
+    avector_search_tool,
+)
 from src.utilities.utils import (
     convert_langchain_messages_to_dicts,
     get_structured_output,
 )
-from src.utilities.vectorstores import initialize_vectorstores
 
 logger = create_logger("nodes")
-# =================================================================
-# ========================== GLOBAL VARS ==========================
-# =================================================================
-topics: list[str] = [_topic.value for _topic in VectorSearchType]
-valid_output: list[str] = [_typ.value for _typ in YesOrNo]
-vectorstore_ai: QdrantVectorStore
-vectorstore_football: QdrantVectorStore
 
-try:
-    vectorstore_ai, vectorstore_football = initialize_vectorstores()
-except Exception as e:
-    logger.error(f"Failed to initialize vector stores: {e}", exc_info=True)
-    raise
+type RetrieverFn = Callable[[str, str | None, int], Coroutine[Any, Any, list[Document]]]
+retrieval_method_dicts: dict[str, RetrieverFn] = {
+    RetrieverMethodType.VECTOR_SEARCH: avector_search_tool,
+    RetrieverMethodType.KEYWORD_SEARCH: akeyword_search_tool,
+    RetrieverMethodType.HYBRID_SEARCH: ahybrid_search_tool,
+}
+prompt_builder = PromptsBuilder()
 
-
-async def classify_query_node(state: State) -> dict[str, Any]:
-    """Classify the user query to determine the data source to use."""
-    logger.info("Calling ===> classify_query_node <===")
-
-    query = state.get("query")
-    sys_msg = SystemMessage(content=query_analysis_prompt.format(topics=topics))
-    messages = convert_langchain_messages_to_dicts(
-        [sys_msg, HumanMessage(content=query)]
-    )
-    query_type: RouteQuerySchema = await get_structured_output(
-        messages=messages,
-        model=classifier_model,
-        schema=RouteQuerySchema,
-    )  # type: ignore
-
-    logger.info(
-        f"✅ Classified query to use data source: {query_type.data_source.value}"
-    )
-    return {"other_info": {"source_type": query_type.data_source.value}}
+section_titles: list[str] = [
+    "ITEM 1. BUSINESS",
+    "ITEM 1A. RISK FACTORS",
+    "ITEM 1B. UNRESOLVED STAFF COMMENTS",
+    "ITEM 2. PROPERTIES",
+    "ITEM 3. LEGAL PROCEEDINGS",
+    "ITEM 4. MINE SAFETY DISCLOSURES",
+    "ITEM 5. MARKET FOR REGISTRANT’S COMMON EQUITY, RELATED STOCKHOLDER MATTERS AND ISSUER PURCHASES OF EQUITY SECURITIES",
+    "ITEM 6. [RESERVED]",
+    "ITEM 7. MANAGEMENT’S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS",
+    "ITEM 7A. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK",
+    "ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA",
+    "ITEM 9. CHANGES IN AND DISAGREEMENTS WITH ACCOUNTANTS ON ACCOUNTING AND FINANCIAL DISCLOSURE",
+    "ITEM 9A. CONTROLS AND PROCEDURES",
+    "ITEM 9C. DISCLOSURE REGARDING FOREIGN JURISDICTIONS THAT PREVENT INSPECTIONS",
+    "ITEM 10. DIRECTORS, EXECUTIVE OFFICERS AND CORPORATE GOVERNANCE",
+    "ITEM 11. EXECUTIVE COMPENSATION",
+    "ITEM 12. SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT AND RELATED STOCKHOLDER MATTERS",
+    "ITEM 13. CERTAIN RELATIONSHIPS AND RELATED TRANSACTIONS, AND DIRECTOR INDEPENDENCE",
+    "ITEM 14. PRINCIPAL ACCOUNTANT FEES AND SERVICES",
+    "ITEM 15. EXHIBIT AND FINANCIAL STATEMENT SCHEDULES",
+    "ITEM 16. FORM 10-K SUMMARY",
+]
 
 
-async def llm_call_node(state: State) -> dict[str, Any]:
-    """Call LLM with tools to get an initial response."""
-    logger.info("Calling ===> llm_call_node <===")
+# =========================================================
+# ============== HELPER FUNCTIONS FOR NODES ===============
+# =========================================================
+def deduplicate(documents: list[Document]) -> list[Document]:
+    """Deduplicate documents based on 'chunk_id' in metadata."""
+    docs_dict: dict[str, Document] = {}
 
-    query = state.get("query")
-    if not query and "messages" in state:
-        messages = state["messages"]
-        query = messages[-1] if isinstance(messages, list) else messages
-
-    llm_with_tools = remote_llm.bind_tools([search_tool])
-    response = await llm_with_tools.ainvoke(query)
-
-    return {
-        "query": query,
-        # Messages key is the default key for tools
-        "messages": [response],
-    }
-
-
-async def generate_web_search_response(state: State) -> dict[str, Any]:
-    """Generate response based on web search results."""
-    logger.info("Calling ===> generate_web_search_response <===")
-
-    message: str = state.get("messages", [])[-1].content  # type: ignore
-    if not message:
-        return {
-            "response": "I couldn't find relevant information to answer your query."
-        }
-    sys_msg = SystemMessage(content=websearch_prompt)
-    prompt: str = f"SEARCH RESULTS:\n{message}"
-
-    response = await remote_llm.ainvoke([sys_msg, HumanMessage(content=prompt)])
-
-    return {
-        "query": state["query"],
-        "response": response.content,
-    }
-
-
-async def retrieve_documents(state: State) -> dict[str, Any]:
-    """Retrieve documents by intelligently selecting the appropriate retriever."""
-    max_chars: int = 1_000
-    logger.info("Calling ===> retrieve_documents <===")
-
-    query = state.get("query")
-    prompt: str = vectorstore_routing_prompt.format(query=query)
-
-    user_msg = {"role": "user", "content": prompt}
-
-    retriever_choice = await get_structured_output(
-        messages=[user_msg],
-        model=classifier_model,
-        schema=VectorSearchTypeSchema,
-    )  # type: ignore
-    retriever_choice: str = retriever_choice.vector_search_type.value  # type: ignore
-
-    logger.info(f"✅ Retriever choice: {retriever_choice}")
-
-    # Retrieve documents based on the routing decision
-    if retriever_choice == VectorSearchType.FOOTBALL.value:
-        retrieved_docs = vectorstore_football.similarity_search(query, k=3)
-        logger.info(
-            f"✅ Used football retriever, found {len(retrieved_docs)} documents"
+    if not documents[0].metadata:
+        raise ValueError(
+            "Cannot deduplicate documents without 'chunk_id' in metadata. Please ensure documents have "
+            "'chunk_id' in their metadata."
         )
-    elif retriever_choice == VectorSearchType.AI.value:
-        retrieved_docs = vectorstore_ai.similarity_search(query, k=3)
-        logger.info(f"✅ Used AI retriever, found {len(retrieved_docs)} documents")
-    else:
-        return {"response": "I couldn't find the vectorstore to answer your query."}
-
-    # Format documents for message display
-    formatted_docs = "\n\n".join(
-        f"Source: {doc.metadata.get('source', 'Unknown')}\nContent: {doc.page_content[:max_chars]} [truncated]\n"
-        for doc in retrieved_docs
-    )
-
-    return {
-        "query": query,
-        "documents": retrieved_docs,
-        "messages": [f"Retrieved {len(retrieved_docs)} documents:\n{formatted_docs}"],
-    }
-
-
-async def grade_documents(state: State) -> dict[str, Any]:
-    """Grade the relevance of retrieved documents."""
-    logger.info("Calling ===> grade_documents <===")
-
-    query = state.get("query")
-    documents = state.get("documents", [])
-
-    if not documents:
-        logger.warning("⚠️ No documents to grade")
-        return {"other_info": {"retrieval_relevance": YesOrNo.NO.value}}
-
-    # Grade each document
-    relevant_docs: list[Document] = []
     for doc in documents:
-        doc_content = f"Source: {doc.metadata}\nContent: {doc.page_content}"
+        if (_id := doc.metadata["chunk_id"]) not in docs_dict:
+            docs_dict[_id] = doc
+    return list(docs_dict.values())
 
-        sys_msg = SystemMessage(
-            content=retrieval_grading_prompt.format(
-                valid_output=valid_output, retrieved_documents=doc_content
-            )
+
+def format_documents(documents: list[Document]) -> str:
+    """Format documents for synthesis input."""
+    delimiter: str = "===" * 20
+    try:
+        docs: list[str] = [
+            f"[Source]: {doc.metadata['source_doc']}\n[Content]: {doc.page_content}\n{delimiter}"
+            for doc in documents
+        ]
+    except KeyError:
+        docs = [
+            f"[Source]: {doc.metadata['url']}\n[Content]: {doc.page_content}\n{delimiter}"
+            for doc in documents
+        ]
+    formated_docs: str = "\n\n".join(docs)
+
+    return formated_docs
+
+
+async def aretrieve_internal_documents(
+    method: RetrieverMethodType | str,
+    rewritten_queries: list[str],
+    target_section: str | None,
+    k: int,
+) -> list[Document]:
+    """Retrieve internal documents using the specified retrieval method.
+
+    Parameters
+    ----------
+    method : RetrieverMethodType | str
+        Retrieval method to use (`vector_search`, `keyword_search`, or `hybrid_search`).
+    rewritten_queries : list[str]
+        Query variations produced by the query rewriter for this step.
+    target_section : str | None
+        Target section filter for internal document search. Only applied when
+        method is `vector_search` or `hybrid_search`; ignored for pure keyword search.
+    k : int
+        Number of top documents to retrieve per query before deduplication.
+
+    Returns
+    -------
+    list[Document]
+        List of unique retrieved documents across all query variations.
+
+    Raises
+    ------
+    ValueError
+        If the provided method is not supported.
+    """
+    method = (
+        method
+        if isinstance(method, RetrieverMethodType)
+        else RetrieverMethodType(method)
+    )
+    retrieval_fn = retrieval_method_dicts.get(method)
+    if retrieval_fn is None:
+        raise ValueError(f"Unsupported retrieval method: {method}")
+
+    tasks: list[Coroutine[Any, Any, list[Document]]] = [
+        # Expected signature. Order: query, target_section, k is important!
+        retrieval_fn(
+            query,
+            target_section,
+            k,
         )
-        grading_query = query_n_retrieved_docs_prompt.format(
-            query=query, retrieved_documents=doc_content
+        for query in rewritten_queries
+    ]
+    all_docs: list[list[Document]] = await asyncio.gather(*tasks)
+    # Flatten the docs
+    retrieved_docs: list[Document] = [doc for sublist in all_docs for doc in sublist]  # type: ignore
+
+    return deduplicate(documents=retrieved_docs)
+
+
+async def query_rewriter(question: str, search_keywords: list[str]) -> ReWrittenQuery:
+    """Re-write the user's question into multiple query variations."""
+    prompt = prompt_builder.query_rewriter_prompt(
+        question=question, search_keywords=", ".join(search_keywords)
+    )
+    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
+    response = await get_structured_output(
+        messages=messages, model=None, schema=ReWrittenQuery
+    )
+    return cast(ReWrittenQuery, response)
+
+
+async def determine_retrieval_type(question: str) -> RetrieverMethod:
+    """Determine the optimal retrieval method for the given question."""
+    prompt = prompt_builder.retriever_type_prompt(question=question)
+    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
+    response = await get_structured_output(
+        messages=messages, model=None, schema=RetrieverMethod
+    )
+    return cast(RetrieverMethod, response)
+
+
+def convert_context_to_str(state_state: list[StepState]) -> str:
+    """This function converts the list of StepState dictionaries into a single string.
+
+    Parameters
+    ----------
+    state_state : list[StepState]
+        The list of StepState dictionaries representing the research history.
+
+    Returns
+    -------
+    str
+        A single string representation of the research history.
+    """
+    return "\n\n".join(
+        [
+            f"Step {s['step_index']}: {s['question']}\nSummary: {s['summary']}"
+            for s in state_state
+        ]
+    )
+
+
+def format_plan(plan: Plan | None) -> str:
+    """Format the plan into a string representation.
+
+    Parameters
+    ----------
+    plan : Plan
+        The multi-step plan to be formatted.
+
+    Returns
+    -------
+    str
+        A string representation of the plan.
+    """
+    if plan is None:
+        return ""
+    return json.dumps([step.model_dump() for step in plan.steps])
+
+
+async def get_decision(question: str, plan: Plan | None, history: str) -> Decision:
+    """This node is used to determine whether to continue with the plan or finish.
+
+    Parameters
+    ----------
+    question : str
+        The original user question.
+    plan : Plan
+        The multi-step plan object.
+    history : str
+        The history of completed steps.
+
+    Returns
+    -------
+    Decision
+        The decision object containing the next action and rationale.
+    """
+    sys_msg = prompt_builder.decision_prompt(
+        question=question, plan=format_plan(plan=plan)
+    )
+    history_query: str = f"<COMPLETED_STEPS>{history}</COMPLETED_STEPS>"
+
+    messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
+        messages=[SystemMessage(sys_msg), HumanMessage(history_query)]
+    )
+    response = await get_structured_output(
+        messages=messages, model=None, schema=Decision
+    )
+    return cast(Decision, response)
+
+
+async def rerank_retrieved_documents(state: State) -> dict[str, Any]:
+    """Rerank documents by relevance to query."""
+    k: int = 3
+    question: str = state["original_question"]
+    retrieved_documents: list[Document] = state["retrieved_documents"]
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    logger.info(
+        f"Retrieving documents for reranking for Step {current_step_idx}: {current_step.question}"
+    )
+
+    reranked_docs: list[Document] = await arerank_documents(
+        query=question, documents=retrieved_documents, k=k
+    )
+
+    return {"reranked_documents": reranked_docs}
+
+
+async def compression_documents(state: State) -> dict[str, Any]:
+    """Synthesize final context from reranked documents."""
+    reranked_documents: list[Document] = state["reranked_documents"]
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+
+    # Format document
+    user_query: str = f"<DOCUMENT>{format_documents(reranked_documents)}</DOCUMENT>"
+    sys_msg: str = prompt_builder.compression_prompt(question=current_step.question)
+    logger.info(
+        f"Synthesizing documents for Step {current_step_idx}: {current_step.question}"
+    )
+    response = await remote_llm.ainvoke(
+        [SystemMessage(sys_msg), HumanMessage(user_query)]
+    )
+
+    return {"synthesized_context": response.content}
+
+
+# =========================================================
+# ========================= NODES =========================
+# =========================================================
+@traceable
+async def validate_query_node(state: State) -> dict[str, Any]:
+    """Validate the user's query to ensure it is relevant to the specified topics.
+
+    Parameters
+    ----------
+    state : State
+        Current state containing the original_question.
+
+    Returns
+    -------
+    dict[str, Any]
+        Updated state with validation results.
+    """
+    topics: str = "NVIDIA's financial performance, form 10-K internal documents, news related to NVIDIA, and industry trends, "
+    user_question: str = state["original_question"]
+    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
+    sys_msg = prompt_builder.query_validation_prompt(topics=topics)
+    messages = convert_langchain_messages_to_dicts(
+        messages=[SystemMessage(content=sys_msg), HumanMessage(content=user_query)]
+    )
+    logger.info("🚨 Validating user question against context topics...")
+    response = await get_structured_output(
+        messages=messages, model=None, schema=ValidateQuery
+    )
+    response = cast(ValidateQuery, response)
+    logger.info(
+        f"🚨 Related to topic?: {response.is_related_to_context} | "
+        f"Next Action: {response.next_action} | Rationale: {response.rationale}"
+    )
+
+    step_state: list[StepState] = [
+        StepState(
+            step_index=-1,
+            question=user_question,
+            rewritten_queries=[],
+            retrieved_documents=[],
+            summary=response.rationale,
         )
-
-        messages = convert_langchain_messages_to_dicts(
-            [sys_msg, HumanMessage(content=grading_query)]
-        )
-        grade: GradeRetrievalSchema = await get_structured_output(
-            messages=messages,
-            model=classifier_model,
-            schema=GradeRetrievalSchema,
-        )  # type: ignore
-
-        if grade.is_relevant.value == YesOrNo.YES.value:
-            relevant_docs.append(doc)
-
-    logger.info(f"✅ Graded documents: {len(relevant_docs)}/{len(documents)} relevant")
+    ]
 
     return {
-        "documents": relevant_docs,
-        "other_info": {
-            "retrieval_relevance": (
-                YesOrNo.YES.value if relevant_docs else YesOrNo.NO.value
-            )
-        },
+        "current_step_index": -1,
+        "is_related_to_context": response.is_related_to_context,
+        "step_state": step_state,
+        "plan": None,
     }
 
 
-def should_continue_to_retrieve(state: State) -> Literal["retrieve", "web_search"]:
-    """Decide whether to retrieve from vectorstore or perform web search."""
-    source_type = state.get("other_info", {}).get("source_type", DataSource.WEBSEARCH)
+@traceable
+async def generate_plan_node(state: State) -> dict[str, Any]:
+    """Generate a multi-step plan based on the user's question.
 
-    if source_type == DataSource.VECTORSTORE.value:
-        return "retrieve"
-    return "web_search"
+    Parameters
+    ----------
+    state : State
+        Current state containing the original_question.
 
+    Returns
+    -------
+    dict[str, Any]
+        Updated state with the generated plan.
+    """
+    # If plan already exists, return empty update (no overwrite)
+    if state.get("plan"):
+        return {}
 
-def should_continue_to_generate(
-    state: State,
-) -> Literal["generate", "rewrite", "failed"]:
-    """Decide whether to generate response or rewrite query based on retrieval relevance."""
-    relevance = state.get("other_info", {}).get("retrieval_relevance", YesOrNo.NO)
-    runs: int = state.get("runs", 0)
+    user_question: str = state["original_question"]
+    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
 
-    if runs <= 3:
-        if relevance == YesOrNo.YES.value:
-            return "generate"
-        return "rewrite"
-
-    return "failed"
-
-
-async def generate_response(state: State) -> dict[str, Any]:
-    """Generate response based on retrieved documents."""
-    logger.info("Calling ===> generate_response <===")
-
-    query = state.get("query")
-    documents = state.get("documents", [])
-
-    if not documents:
-        return {
-            "response": "I couldn't find relevant information to answer your query."
-        }
-
-    if documents:
-        # Format documents for the prompt
-        formatted_docs = "\n\n".join(
-            f"Document {i + 1}:\n{doc.page_content}" for i, doc in enumerate(documents)
-        )
-
-    prompt = rag_response_generator_prompt.format(
-        query=query,
-        retrieved_documents=formatted_docs,  # type: ignore
-    )
-
-    response = await remote_llm.ainvoke(prompt)
-
-    return {"response": response.content}
-
-
-async def check_hallucination_node(state: State) -> dict[str, Any]:
-    """Check if the generated response contains hallucinations."""
-    logger.info("Calling ===> check_hallucination_node <===")
-
-    query = state.get("query")
-    runs: int = state.get("runs", 0)
-
-    response = state.get("response")
-
-    sys_msg = SystemMessage(
-        content=hallucination_prompt.format(valid_output=valid_output)
-    )
-    check_query = query_n_response_prompt.format(query=query, response=response)
+    sys_msg = prompt_builder.planner_prompt(section_titles=" | ".join(section_titles))
 
     messages = convert_langchain_messages_to_dicts(
-        [sys_msg, HumanMessage(content=check_query)]
+        messages=[SystemMessage(content=sys_msg), HumanMessage(content=user_query)]
     )
-    result: HallucinationSchema = await get_structured_output(
-        messages=messages,
-        model=classifier_model,
-        schema=HallucinationSchema,
-    )  # type: ignore
-
-    logger.info(f"✅ Hallucination check: {result.is_hallucinating.value}")
+    response = await get_structured_output(
+        messages=messages, model="x-ai/grok-4.1-fast:free", schema=Plan
+    )
+    response = cast(Plan, response)
+    logger.info(f"Number of steps: {len(response.steps)}...")
 
     return {
-        "runs": runs + 1,
-        "other_info": {"is_hallucinating": result.is_hallucinating.value},
+        "is_related_to_context": True,
+        "plan": response,
+        "step_state": [],
+        "current_step_index": 0,
     }
 
 
-def should_continue_to_final_answer(
-    state: State,
-) -> Literal["answer", "rewrite", "failed"]:
-    """Decide whether to finalize answer, rewrite query, or fail based on hallucination check."""
-    is_hallucinating = state.get("other_info", {}).get("is_hallucinating", YesOrNo.YES)
-    runs: int = state.get("runs", 0)
+@traceable
+async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
+    """Retrieve internal documents node."""
+    k: int = 5
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    logger.info(
+        f"🛢 Using Vector DB\nRetrieving documents for Step {current_step_idx}: {current_step.question}"
+    )
 
-    if runs <= 3:
-        if is_hallucinating == YesOrNo.NO.value:
-            return "answer"
-        return "rewrite"
+    # Re-write the query and determine retrieval method concurrently
+    re_written_query_obj, retriever_method = await asyncio.gather(
+        query_rewriter(
+            question=current_step.question,
+            search_keywords=current_step.search_keywords,
+        ),
+        determine_retrieval_type(question=current_step.question),
+    )
 
-    return "failed"
+    rewritten_queries: list[str] = re_written_query_obj.rewritten_query
+    logger.info(f"Re-written queries: {rewritten_queries}")
+    logger.info(
+        f"Selected retrieval method: {retriever_method.method};\nRationale: {retriever_method.rationale}"
+    )
 
-
-async def rewrite_query(state: State) -> dict[str, Any]:
-    """Rewrite the query to improve retrieval."""
-    logger.info("Calling ===> rewrite_query <===")
-    runs: int = state.get("runs", 0)
-
-    query = state.get("query")
-    prompt = query_rewriter_prompt.format(original_query=query)
-    response = await remote_llm.ainvoke(prompt)
-
-    rewritten = response.content
-    logger.info(f"Original: {query}\nRewritten: {rewritten}")
-    logger.warning(f"⚠️ Runs: {runs + 1}")
-
+    # Retrieve documents based on the selected method
+    retrieved_docs: list[Document] = await aretrieve_internal_documents(
+        method=retriever_method.method,
+        rewritten_queries=rewritten_queries,
+        target_section=current_step.target_section,
+        k=k,
+    )
+    step_state = StepState(
+        step_index=current_step_idx,
+        question=current_step.question,
+        rewritten_queries=rewritten_queries,
+        retrieved_documents=retrieved_docs,
+        summary="",
+    )
+    # Update the state with retrieved docs and step_state
     return {
-        "query": query,
-        "runs": runs + 1,
-        "other_info": {"rewritten_query": rewritten},
+        "step_state": [step_state],
+        "retrieved_documents": retrieved_docs,
     }
 
 
-def failed_node(state: State) -> dict[str, Any]:
-    """Finalize the answer."""
-    logger.info("Calling ===> failed_node <===")
+@traceable
+async def internet_search_node(state: State) -> dict[str, Any]:
+    """Retrieve documents from the web using re-written queries.
 
-    return {
-        "response": state.get(
-            "response", "I couldn't find relevant information to answer your query."
+    Parameters
+    ----------
+    state : State
+        Current state of the agent.
+
+    Returns
+    -------
+    dict[str, Any]
+        The retrieved documents
+    """
+    k: int = 5
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    logger.info(
+        f"Retrieving documents for Step {current_step_idx}: {current_step.question}"
+    )
+
+    # Re-write the query using the query re-writer
+    re_written_query_obj: ReWrittenQuery = await query_rewriter(
+        question=current_step.question,
+        search_keywords=current_step.search_keywords,
+    )
+    rewritten_queries: list[str] = re_written_query_obj.rewritten_queries
+    logger.info(f"🌐 WEB SEARCH\nRe-written queries: {rewritten_queries}")
+
+    tasks: list[Coroutine[Any, Any, list[Document]]] = [
+        atavily_web_search_tool(
+            query=query,
+            fetch_full_page=False,
+            k=k,
+            max_chars=None,
         )
+        for query in rewritten_queries
+    ]
+    all_docs: list[list[Document]] = await asyncio.gather(*tasks)
+    # Flatten the docs
+    retrieved_docs: list[Document] = [doc for sublist in all_docs for doc in sublist]  # type: ignore
+
+    step_state = StepState(
+        step_index=current_step_idx,
+        question=current_step.question,
+        rewritten_queries=rewritten_queries,
+        retrieved_documents=retrieved_docs,
+        summary="",
+    )
+    # Update the state with retrieved docs and step_state
+    return {
+        "step_state": [step_state],
+        "retrieved_documents": retrieved_docs,
     }
 
 
-def answer_node(state: State) -> dict[str, Any]:
-    """Finalize the answer."""
-    logger.info("Calling ===> answer_node <===")
+@traceable
+async def rerank_and_compress_node(state: State) -> dict[str, Any]:
+    """Rerank documents and then synthesize final context.
 
-    response = state.get(
-        "response", "I couldn't find relevant information to answer your query."
+    Parameters
+    ----------
+    state : State
+        The current state containing retrieved documents and other info.
+
+    Returns
+    -------
+    dict[str, Any]
+        Updated state with reranked documents and synthesized context.
+    """
+    rerank_result = await rerank_retrieved_documents(state)
+    # Update state with reranked documents
+    updated_state = {**state, **rerank_result}  # type: ignore
+    compression_result = await compression_documents(updated_state)  # type: ignore
+    return {**rerank_result, **compression_result}
+
+
+@traceable
+async def summarization_node(state: State) -> dict[str, Any]:
+    """Synthesize final context from reranked documents. This node is also responsible for moving to
+    the next step in the multi-step plan.
+    """
+
+    synthesized_context: str = state["synthesized_context"]
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    rewritten_queries = [
+        step for step in state["step_state"] if current_step_idx == step["step_index"]
+    ][0]["rewritten_queries"]
+
+    # Format document
+    context: str = f"<CONTEXT>{synthesized_context}</CONTEXT>"
+    sys_msg: str = prompt_builder.summarization_prompt(question=current_step.question)
+    logger.info(f"Summarizing for Step {current_step_idx}: {current_step.question}")
+    response = await remote_llm.ainvoke([SystemMessage(sys_msg), HumanMessage(context)])
+
+    new_step_state: StepState = StepState(
+        step_index=current_step_idx,
+        question=current_step.question,
+        rewritten_queries=rewritten_queries,
+        retrieved_documents=state["retrieved_documents"],
+        summary=response.content,  # type: ignore
+    )
+    logger.info(
+        f"⚠️ Number of steps completed: {current_step_idx + 1} | Num iterations: {state.get('num_iterations', 0) + 1}"
     )
 
-    return {"response": response}
+    # Append the new step state to the existing list and increment current step index
+    return {
+        "step_state": state.get("step_state", []) + [new_step_state],
+        "current_step_index": current_step_idx + 1,
+        "synthesized_context": response.content,
+        "num_iterations": state.get("num_iterations", 0) + 1,
+    }
+
+
+@traceable
+async def final_answer_node(state: State) -> dict[str, Any]:
+    """Generate the final answer with citations based on all collected evidence."""
+
+    logger.info("--- ✅: Generating Final Answer with Citations ---")
+    # Gather all the evidence we've collected from ALL steps.
+    final_context: str = ""
+    for i, step in enumerate(state["step_state"]):
+        final_context += f"\n--- Findings from Research Step {i + 1} ---\n"
+        # Include the source metadata (section or URL) for each document to enable citations.
+        for doc in step["retrieved_documents"]:
+            source: str = doc.metadata.get("source_doc") or doc.metadata.get("url")  # type: ignore
+            final_context += f"Source: {source}\nContent: {doc.page_content}\n\n"
+
+    prompt: str = prompt_builder.final_answer_prompt(
+        question=state["original_question"]
+    )
+    context: str = f"<CONTEXT>{final_context}</CONTEXT>"
+
+    final_answer = await remote_llm.ainvoke(
+        [SystemMessage(prompt), HumanMessage(context)]
+    )
+    # Update the state with the final answer and reset num_iterations
+    return {
+        "final_answer": final_answer.content,
+        "num_iterations": 0,  # Reset counter for next question
+    }
+
+
+def unrelated_query_node(state: State) -> dict[str, Any]:  # noqa: ARG001
+    """Handle unrelated queries by providing a default response.
+
+    Parameters
+    ----------
+    state : State
+        The current state of the agent.
+
+    Returns
+    -------
+    dict[str, Any]
+        Updated state with a default final answer.
+    """
+    logger.info("🚨 Query unrelated to context. Generating default response...")
+    default_response: str = (
+        "I'm sorry, but your question does not relate to the available information "
+        "about NVIDIA's financial performance, form 10-K, news related to NVIDIA, "
+        "or industry trends. Please ask a question relevant to these topics."
+    )
+    return {
+        "plan": None,
+        "final_answer": default_response,
+        "num_iterations": 0,  # Reset counter for next question
+    }
+
+
+# =========================================================
+# =================== CONDITIONAL NODES ===================
+# =========================================================
+def route_by_tool_condition(state: State) -> ToolsType:
+    """Determine the tool type for the current step.
+
+    Parameters
+    ----------
+    state : State
+        The current state of the agent.
+
+    Returns
+    -------
+    ToolsType
+        The tool type for the current step.
+    """
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    return current_step.tool
+
+
+async def should_continue_condition(
+    state: State, max_reasoning_interations: int = 8
+) -> NextAction:
+    """Determine if the current step should be retried.
+
+    Parameters
+    ----------
+    state : State
+        The current state of the agent.
+    max_reasoning_interations : int, optional
+        The maximum number of reasoning iterations allowed, by default 8.
+
+    Returns
+    -------
+    NextAction
+        The next action to take (CONTINUE or FINISH).
+    """
+    print("--- Evaluating Multi Step Reasoning Policy ---")
+    is_related_to_context: bool = state.get("is_related_to_context", True)
+    current_step_idx: int = state["current_step_index"]
+    num_iterations: int = state.get("num_iterations", 0)
+
+    # Checks
+    # If query does NOT relate to the topics, finish immediately
+    if not is_related_to_context:
+        logger.info(" -> Query not related to context. Finishing...")
+        return NextAction.FINISH
+
+    # Are all the steps completed?
+    if state["plan"] and (current_step_idx >= len(state["plan"].steps)):
+        logger.info(f" -> Plan complete. {num_iterations} iterations. Finishing...")
+        return NextAction.FINISH
+
+    # Is the max num of iterations exhausted?
+    if num_iterations >= max_reasoning_interations:
+        logger.info(
+            f" -> Max iterations reached. {num_iterations} iterations. Finishing..."
+        )
+        return NextAction.FINISH
+
+    # Last retrieval step failed to find any docs
+    if state.get("reranked_documents") is not None and not state["reranked_documents"]:
+        logger.info(
+            "⚠️ -> Retrieval failed for the last step. Continuing with next step in plan."
+        )
+        return NextAction.CONTINUE
+
+    # If the conditions above are NOT met
+    history: str = convert_context_to_str(state["step_state"])
+
+    # Get decision from LLM
+    decision = await get_decision(
+        question=state["original_question"],
+        plan=state["plan"],
+        history=history,
+    )
+    logger.info(
+        f" -> Decision: {decision.next_action} | Rationale: {decision.rationale}"
+    )
+
+    if decision.next_action == NextAction.FINISH:
+        return NextAction.FINISH
+    return NextAction.CONTINUE
