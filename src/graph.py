@@ -5,7 +5,6 @@ from langgraph.store.base import BaseStore
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from langgraph.types import RetryPolicy
 
-from schemas.types import NextAction, ToolsType
 from src import create_logger
 from src.config import app_config, app_settings
 from src.nodes import (
@@ -20,6 +19,7 @@ from src.nodes import (
     unrelated_query_node,
     validate_query_node,
 )
+from src.schemas.types import NextAction, ToolsType
 from src.state import State
 
 logger = create_logger(name="graph_manager")
@@ -27,11 +27,7 @@ logger = create_logger(name="graph_manager")
 # Constants
 INITIAL_RETRY_INTERVAL: float = 1.0
 MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
-DB_URI: str = (
-    f"postgresql://{app_settings.POSTGRES_USER}:"
-    f"{app_settings.POSTGRES_PASSWORD.get_secret_value()}@{app_settings.POSTGRES_HOST}:"
-    f"{app_settings.POSTGRES_PORT}/{app_settings.POSTGRES_DB}?sslmode=disable"
-)
+DB_URI: str = app_settings.database_url
 
 
 class GraphManager:
@@ -202,5 +198,12 @@ class GraphManager:
         builder.add_edge("final_answer", END)
         builder.add_edge("unrelated_query", END)
 
-        # Compile the graph
-        return builder.compile()
+        # Compile the graph with persistent Postgres checkpointer
+        self.graph_instance = builder.compile(
+            checkpointer=self.checkpointer, store=self.long_term_memory
+        )
+        logger.info(
+            "Graph instance built and compiled with Postgres checkpointer and long-term memory."
+        )
+
+        return self.graph_instance

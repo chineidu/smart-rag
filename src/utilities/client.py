@@ -3,6 +3,7 @@ from typing import Any
 
 import httpx
 import instructor
+from instructor.core.client import AsyncInstructor
 from openai import AsyncOpenAI
 
 from src.config import app_settings
@@ -104,7 +105,7 @@ class HTTPXClient:
         }
 
 
-async def get_instructor_openrouter_client() -> instructor.AsyncClient:  # type: ignore
+async def get_instructor_openrouter_client() -> AsyncInstructor:
     """Create an Instructor AsyncOpenRouter client."""
     _async_client = AsyncOpenAI(
         api_key=app_settings.OPENROUTER_API_KEY.get_secret_value(),

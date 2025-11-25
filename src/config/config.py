@@ -7,12 +7,30 @@ from pydantic import Field
 
 from src import PACKAGE_PATH
 from src.schemas import BaseSchema
+from src.schemas.types import FileFormatsType
 
 
 class VectorStoreConfig(BaseSchema):
     """Configuration for vector store."""
 
-    filepaths: str = Field(..., description="Path to the football news data directory.")
+    filepaths: str = Field(description="Path to the football news data directory.")
+    jq_schema: str | None = Field(
+        default=None, description="JQ schema to apply when loading documents"
+    )
+    format: FileFormatsType | str = Field(
+        description="Format of the files to be loaded."
+    )
+    collection: str = Field(
+        description="Name of the Qdrant collection to use or create"
+    )
+    filepaths_is_glob: bool = Field(
+        default=False,
+        description="If True, treat `filepaths` as a glob pattern to match multiple files, by default False",
+    )
+    force_recreate: bool = Field(
+        default=False,
+        description="If True, delete and recreate existing collection to match embedding dimension.",
+    )
 
 
 class CustomConfig(BaseSchema):
@@ -70,6 +88,21 @@ class CrossEncoderConfig(BaseSchema):
     )
 
 
+class CORS(BaseSchema):
+    """CORS configuration class."""
+
+    allow_origins: list[str]
+    allow_credentials: bool
+    allow_methods: list[str]
+    allow_headers: list[str]
+
+
+class Middleware(BaseSchema):
+    """Middleware configuration class."""
+
+    cors: CORS
+
+
 class LLMModelConfig(BaseSchema):
     """Configuration for models."""
 
@@ -87,6 +120,18 @@ class LLMModelConfig(BaseSchema):
     )
 
 
+class APIConfig(BaseSchema):
+    """API-level configuration."""
+
+    title: str = Field(..., description="The title of the API.")
+    name: str = Field(..., description="The name of the API.")
+    description: str = Field(..., description="The description of the API.")
+    version: str = Field(..., description="The version of the API.")
+    status: str = Field(..., description="The current status of the API.")
+    prefix: str = Field(..., description="The prefix for the API routes.")
+    middleware: Middleware = Field(description="Middleware configuration.")
+
+
 class AppConfig(BaseSchema):
     """Application-level configuration."""
 
@@ -95,6 +140,7 @@ class AppConfig(BaseSchema):
     )
     custom_config: CustomConfig = Field(description="Custom configurations")
     llm_model_config: LLMModelConfig = Field(description="LLM model configurations.")
+    api_config: APIConfig = Field(description="API configurations.")
 
 
 config_path: Path = PACKAGE_PATH / "src/config/config.yaml"

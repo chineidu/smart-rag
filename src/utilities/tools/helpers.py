@@ -21,34 +21,14 @@ from tokenizers import (
     models as t_models,
 )
 
-from config.config import app_config
 from src import create_logger
-from src.config import app_settings
+from src.config import app_config, app_settings
+from src.startup import get_vectorstore_setup
 from src.utilities.client import HTTPXClient
-from src.utilities.vectorstores import VectorStoreSetup
 
 logger = create_logger("helpers")
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# Module-level cached VectorStore setup (should be configured during app startup)
-_vs_setup: VectorStoreSetup | None = None
-
-
-def set_vectorstore_setup(vs_setup: VectorStoreSetup) -> None:
-    """Provide an existing VectorStoreSetup instance for helpers to use.
-
-    Call this during application startup to allow avector_search_tool to use the
-    cached vectorstore.
-    """
-    global _vs_setup
-    _vs_setup = vs_setup
-    logger.info("Global VectorStoreSetup has been set.")
-
-
-def get_vectorstore_setup() -> VectorStoreSetup | None:
-    """Return the currently configured VectorStoreSetup instance (or None)."""
-    return _vs_setup
 
 
 class CustomTokenizer:
@@ -171,6 +151,7 @@ def build_bm25_index(documents: list[Document]) -> dict[str, Any]:
 
 def keyword_search(query: str, k: int = 3) -> list[Document]:
     """Perform keyword search using BM25 and return top k documents."""
+    _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
         documents = _vs_setup.get_documents()

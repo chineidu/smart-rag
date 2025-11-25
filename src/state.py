@@ -2,7 +2,7 @@ from typing import TypedDict
 
 from langchain_core.documents.base import Document
 
-from schemas.nodes_schema import Plan
+from src.schemas.nodes_schema import Plan
 
 
 class StepState(TypedDict):

@@ -545,7 +545,7 @@ def chunk_data_by_sections(
 def load_all_documents(
     filepaths: str | list[str],
     jq_schema: str | None,
-    format: FileFormatsType,
+    format: FileFormatsType | str,
     filepaths_is_glob: bool = False,
 ) -> list[Document]:
     """
@@ -557,7 +557,7 @@ def load_all_documents(
         Path to a single file or a list of paths.
     jq_schema : str or None
         JQ schema to apply when loading documents.
-    format : FileFormatsType
+    format : FileFormatsType | str
         Format of the files to be loaded.
     filepaths_is_glob : bool, default=False
         If True, treat `filepaths` as a glob pattern to match multiple files.
@@ -567,6 +567,10 @@ def load_all_documents(
     list[Document]
         List of loaded Document objects.
     """
+
+    if isinstance(format, str):
+        format = FileFormatsType(format)
+
     if filepaths_is_glob:
         if isinstance(filepaths, list):
             # If already a list, glob each path

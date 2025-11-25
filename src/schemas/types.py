@@ -1,3 +1,4 @@
+from diskcache.core import UNKNOWN
 from enum import StrEnum
 
 
@@ -30,3 +31,23 @@ class FileFormatsType(StrEnum):
     JSON = "json"
     TXT = "txt"
     PDF = "pdf"
+
+
+class ErrorCodeEnum(StrEnum):
+    HTTP_ERROR = "http_error"
+    INTERNAL_SERVER_ERROR = "internal_server_error"
+    INVALID_INPUT = "invalid_input"
+    MODEL_NOT_FOUND = "model_not_found"
+    PREDICTION_ERROR = "prediction_error"
+    RESOURCES_NOT_FOUND = "resources_not_found"
+
+
+class ResourcesType(StrEnum):
+    """The type of resource to use."""
+
+    CACHE = "cache"
+    DATABASE = "database"
+    GRAPH = "graph"
+    RATE_LIMITER = "rate_limiter"
+    VECTOR_STORE = "vector_store"
+    UNKNOWN = UNKNOWN

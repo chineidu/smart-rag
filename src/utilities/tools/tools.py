@@ -5,6 +5,7 @@ from langchain_core.documents import Document
 from qdrant_client import models
 from qdrant_client.models import Filter
 
+from src.startup import get_vectorstore_setup
 from src.utilities.tools.helpers import (
     aduckduckgo_search,
     build_bm25_index,
@@ -12,10 +13,6 @@ from src.utilities.tools.helpers import (
     rerank_documents,
     tavily_search_tool,
 )
-from src.utilities.vectorstores import VectorStoreSetup
-
-# Module-level cached VectorStore setup (should be configured during app startup)
-_vs_setup: VectorStoreSetup | None = None
 
 
 async def avector_search_tool(
@@ -39,6 +36,7 @@ async def avector_search_tool(
     list[Document]
         A list of retrieved Document objects.
     """
+    _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
 
@@ -110,6 +108,7 @@ async def ahybrid_search_tool(
     """
     K: int = 61  # Default for RRF
 
+    _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
         documents = _vs_setup.get_documents()

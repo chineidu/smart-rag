@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -75,7 +76,17 @@ class Settings(BaseSettingsConfig):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
-    @field_validator("POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before")
+    # ======= Server settings =======
+    ENVIRONMENT: str = "development"  # development | production
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    WORKERS: int = 2
+    RELOAD: bool = False
+    DEBUG: bool = False
+
+    @field_validator(
+        "PORT", "POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before"
+    )
     @classmethod
     def parse_port_fields(cls, v: str | int) -> int:
         """Parses port fields to ensure they are integers."""
@@ -169,6 +180,20 @@ class Settings(BaseSettingsConfig):
             url = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return url
 
+    @property
+    def qdrant_url(self) -> str:
+        """
+        Constructs the Qdrant connection URL.
+
+        Returns
+        -------
+        str
+            Complete Qdrant connection URL in the format:
+            http://host:port
+        """
+        url: str = f"http://{self.QDRANT_HOST}:{self.QDRANT_PORT}"
+        return url
+
 
 def refresh_settings() -> Settings:
     """Refresh environment variables and return new Settings instance.
@@ -185,4 +210,29 @@ def refresh_settings() -> Settings:
     return Settings()
 
 
+def setup_env() -> None:
+    """Sets environment variables for Together AI and OpenRouter clients."""
+    os.environ["TOGETHER_API_KEY"] = app_settings.TOGETHER_API_KEY.get_secret_value()
+    os.environ["TOGETHER_API_URL"] = app_settings.TOGETHER_API_URL
+    os.environ["OPENROUTER_API_KEY"] = (
+        app_settings.OPENROUTER_API_KEY.get_secret_value()
+    )
+    os.environ["OPENROUTER_URL"] = app_settings.OPENROUTER_URL
+
+
 app_settings: Settings = refresh_settings()
+
+# Call setup_env only once at startup
+_setup_env_called: bool = False
+
+
+def setup_env_once() -> None:
+    """Sets environment variables for Together AI and OpenRouter clients. Called only once."""
+    global _setup_env_called
+    if not _setup_env_called:
+        setup_env()
+        _setup_env_called = True
+
+
+# Automatically call setup_env when the module is imported
+setup_env_once()

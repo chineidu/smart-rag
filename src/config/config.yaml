@@ -1,6 +1,12 @@
 config:
   vectorstore_config:
     filepaths: data/nvidia_10k_filing.txt
+    jq_schema: ""
+    format: txt
+    collection: 10k_filing
+    filepaths_is_glob: false
+    force_recreate: false
+
   custom_config:
     topics:
       - Nvidia's financial performance
@@ -13,18 +19,31 @@ config:
 
   llm_model_config:
     creative_model:
-      # google/gemini-2.0-flash-001, openai/gpt-oss-120b, x-ai/grok-4-fast
       model_name: openai/gpt-oss-20b
       temperature: 0.2
       seed: 42
-
     structured_output_model:
       model_name: openai/gpt-oss-20b
-      temperature: 0.0
+      temperature: 0
       seed: 42
-
     cross_encoder_model:
       model_name: cross-encoder/ms-marco-MiniLM-L-6-v2
-
     embedding_model:
-      model_name: sentence-transformers/all-minilm-l12-v2
+      model_name: qwen/qwen3-embedding-8b
+
+  api_config:
+    title: Deep Thinking RAG
+    name: "${.title}"
+    description: API for the Deep Thinking RAG
+    version: v1.0.0
+    status: healthy
+    prefix: /api/v1
+    middleware:
+      cors:
+        allow_origins:
+          - "*"
+        allow_credentials: true
+        allow_methods:
+          - "*"
+        allow_headers:
+          - "*"
