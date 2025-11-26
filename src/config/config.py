@@ -86,6 +86,15 @@ class CrossEncoderConfig(BaseSchema):
     model_name: str = Field(
         ..., description="The name of the cross encoder model to use."
     )
+    num_labels: int | None = Field(
+        default=None, description="Number of labels for the cross encoder model."
+    )
+    max_length: int | None = Field(
+        default=None, description="Maximum sequence length for the cross encoder model."
+    )
+    device: str | None = Field(
+        default=None, description="Device to load the cross encoder model onto."
+    )
 
 
 class CORS(BaseSchema):

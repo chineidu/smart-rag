@@ -28,6 +28,9 @@ config:
       seed: 42
     cross_encoder_model:
       model_name: cross-encoder/ms-marco-MiniLM-L-6-v2
+      num_labels: null
+      max_length: null
+      device: cpu
     embedding_model:
       model_name: qwen/qwen3-embedding-8b
 

@@ -135,6 +135,9 @@ class VectorStoreSetup:
         QdrantVectorStore
             Qdrant vector store instance with embedded documents.
         """
+        # Import here to avoid circular dependencies
+        from src.utilities.tools.helpers import _normalize_data
+
         try:
             # If already initialized and cached, reuse
             if self._initialized and self._vectorstore:
@@ -154,6 +157,7 @@ class VectorStoreSetup:
                     source="Nvidia_10K_Filings",
                     split_by_sections=True,
                 )
+                normalized_docs: list[Document] = _normalize_data(chunked_docs)
                 sample_text: str = "sample text"
                 sample_embedding: list[
                     list[float]
@@ -194,7 +198,8 @@ class VectorStoreSetup:
                     )
 
                 self._vectorstore = vectorstore
-                self._documents = chunked_docs
+                # For keyword search and other uses
+                self._documents = normalized_docs
                 self._initialized = True
 
                 return self._vectorstore
@@ -221,6 +226,6 @@ class VectorStoreSetup:
         """
         async with self._lock:
             if self._initialized:
-                logger.info("Closing vector store resources...")
+                logger.info("📝 Closing vector store resources...")
                 self._vectorstore = None
                 self._initialized = False

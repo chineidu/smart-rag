@@ -131,6 +131,14 @@ def cached(
             cached_response = await cache.get(cache_key)
             if cached_response is not None:
                 logger.info(f"Cache hit for key: {cache_key}")
+                # Some backends/serializers may return a JSON string. Attempt to
+                # deserialize so FastAPI gets native Python types (list/dict).
+                try:
+                    if isinstance(cached_response, str):
+                        return json.loads(cached_response)
+                except Exception:
+                    # If deserialization fails, return the raw cached value
+                    return cached_response
                 return cached_response
 
             # Cache miss - call the actual function

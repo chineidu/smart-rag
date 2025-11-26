@@ -10,8 +10,6 @@ from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.documents import Document
 from langchain_tavily import TavilySearch
 from markdownify import markdownify as md
-from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
 from tokenizers import (  # type: ignore
     Regex,
     Tokenizer,
@@ -22,8 +20,8 @@ from tokenizers import (
 )
 
 from src import create_logger
-from src.config import app_config, app_settings
-from src.startup import get_vectorstore_setup
+from src.config import app_settings
+from src.startup import get_bm25_setup, get_reranker_setup, get_vectorstore_setup
 from src.utilities.client import HTTPXClient
 
 logger = create_logger("helpers")
@@ -116,57 +114,27 @@ class CustomTokenizer:
         return [self.format_data(row) for row in data]
 
 
-def build_bm25_index(documents: list[Document]) -> dict[str, Any]:
-    """Build a BM25 index for keyword search.
-
-    Parameters
-    ----------
-    documents : list[Document]
-        List of Document objects to build the index from.
-
-    Returns
-    -------
-    dict[str, Any]
-        The BM25 index along with document IDs and a document dictionary.
-    """
-    logger.info("\nBuilding BM25 index for keyword search...")
-    custom_tokenizer = CustomTokenizer()
-    # Create a list where each element is a list of words from a document
-    tokenized_corpus = [
-        custom_tokenizer.format_data(doc.page_content).split(" ") for doc in documents
-    ]
-
-    # Create a list of all unique document IDs
-    doc_ids: list[str] = [doc.metadata["chunk_id"] for doc in documents]
-
-    # Create a mapping from a document's ID back to the full Document object for easy lookup
-    doc_dict: dict[str, Document] = {doc.metadata["chunk_id"]: doc for doc in documents}
-
-    # Initialize the BM25Okapi index with our tokenized corpus
-    bm25 = BM25Okapi(tokenized_corpus)
-    logger.info("BM25 index built successfully.")
-
-    return {"bm25": bm25, "doc_ids": doc_ids, "doc_dict": doc_dict}
-
-
 def keyword_search(query: str, k: int = 3) -> list[Document]:
     """Perform keyword search using BM25 and return top k documents."""
+
     _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
-        documents = _vs_setup.get_documents()
-
     if vectorstore is None:
         raise RuntimeError(
             "Vector store not initialized. Call set_vectorstore_setup(VectorStoreSetup) "
             "during app startup and ensure it is ready before using avector_search_tool."
         )
     custom_tokenizer = CustomTokenizer()
-    if documents is None:
+
+    _bm25_setup = get_bm25_setup()
+    if _bm25_setup is not None and _bm25_setup.is_ready():
+        bm25_dict = _bm25_setup.get_model_dict()
+    if bm25_dict is None:
         raise RuntimeError(
-            "No documents available in VectorStoreSetup for keyword search."
+            "BM25 model not initialized. Call set_bm25_setup(BM25Setup) during app startup "
+            "and ensure it is ready before using keyword_search."
         )
-    bm25_dict: dict[str, Any] = build_bm25_index(documents)
 
     # Tokenize the query
     tokenized_query: list[str] = custom_tokenizer.format_data(query).split()
@@ -196,11 +164,19 @@ def rerank_documents(
     list[Document]
         Documents sorted by relevance score in descending order.
     """
-    reranker = CrossEncoder(app_config.llm_model_config.cross_encoder_model.model_name)
+    _reranker_setup = get_reranker_setup()
+    if _reranker_setup is not None and _reranker_setup.is_ready():
+        reranker = _reranker_setup.get_model()
+    if reranker is None:
+        raise RuntimeError(
+            "Reranker model not initialized. Call set_reranker_setup(CrossEncoderSetup) during app startup "
+            "and ensure it is ready before using rerank_documents."
+        )
+
     # Prepare pairs of (query, document content) for scoring
     pairs: list[tuple[str, str]] = [(query, doc.page_content) for doc in documents]
     # Get relevance scores from the CrossEncoder
-    scores: list[float] | np.ndarray = reranker.predict(pairs)
+    scores: list[float] | np.ndarray = reranker.predict(pairs)  # type: ignore
 
     # Combine documents with their scores
     doc_score_pairs: list[tuple[Document, float]] = list(zip(documents, scores))
@@ -486,3 +462,30 @@ async def tavily_search_tool(
     ]
 
     return {"results": raw_results}
+
+
+def _normalize_data(documents: list[Document]) -> list[Document]:
+    """Normalize document text content using CustomTokenizer.
+
+    Parameters
+    ----------
+    documents : list[Document]
+        List of Document objects to normalize.
+
+    Returns
+    -------
+    list[Document]
+        List of Document objects with normalized text content.
+    """
+    custom_tokenizer = CustomTokenizer(to_lower=True)
+    normalized_documents: list[Document] = []
+
+    for doc in documents:
+        normalized_text = custom_tokenizer.format_data(doc.page_content)
+        normalized_doc = Document(
+            page_content=normalized_text,
+            metadata=doc.metadata,
+        )
+        normalized_documents.append(normalized_doc)
+
+    return normalized_documents

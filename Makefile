@@ -33,7 +33,8 @@ install:
 
 api-run:
 	@echo "🚀 Starting FastAPI server on http://localhost:8000"
-	uv run -m src.api.app
+	uv run fastapi dev src/api/app.py
+# 	uv run -m src.api.app
 
 frontend:
 	@echo "🎨 Starting Streamlit app on http://localhost:8501"
@@ -46,7 +47,7 @@ src:
 	@echo ""
 	@echo "Press Ctrl+C in each pane to stop"
 	@if command -v tmux > /dev/null; then \
-		tmux new-session -d -s chat-bot 'uv run -m src.api.app' \; \
+		tmux new-session -d -s chat-bot 'uv run fastapi dev src/api/app.py' \; \
 		split-window -v 'sleep 3 && uv run -m streamlit run src/frontend/app.py' \; \
 		attach-session -t chat-bot; \
 	else \

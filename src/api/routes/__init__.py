@@ -1,3 +1,3 @@
-from .v1 import health
+from .v1 import health, retrievals
 
-__all__: list[str] = ["health"]
+__all__: list[str] = ["health", "retrievals"]

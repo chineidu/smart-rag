@@ -4,10 +4,11 @@ from aiocache import Cache
 from fastapi import Request
 
 from src.api.core.exceptions import ResourcesNotFoundError
+from src.graph import GraphManager
 from src.schemas.types import ResourcesType
 
 if TYPE_CHECKING:
-    from src.graph import GraphManager
+    pass
 
 
 def get_graph_manager(request: Request) -> GraphManager:

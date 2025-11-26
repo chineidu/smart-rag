@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Request, status
+from aiocache import Cache
+from fastapi import APIRouter, Depends, Request, status
 
 from src import create_logger
 from src.api.core.cache import cached
+from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
 from src.config import app_config
@@ -17,6 +19,7 @@ router = APIRouter(tags=["health"])
 @limiter.limit("60/minute")
 async def health_check(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
+    cache: Cache = Depends(get_cache),  # Required by caching decorator  # noqa: ARG001
 ) -> HealthStatusSchema:
     """Route for health checks"""
 
@@ -24,7 +27,7 @@ async def health_check(
         name=app_config.api_config.title,
         status=app_config.api_config.status,
         version=app_config.api_config.version,
-    )
+    ).model_dump(by_alias=True)
 
     if not response:
         BaseAPIError(

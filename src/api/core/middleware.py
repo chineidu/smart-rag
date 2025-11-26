@@ -55,7 +55,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": request.url.path,
             "status_code": response.status_code,
-            "process_time": round(process_time, 4),
+            "process_time_secs": round(process_time, 4),
             "request_id": request_id,
         }
 

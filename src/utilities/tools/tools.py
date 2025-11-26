@@ -5,14 +5,16 @@ from langchain_core.documents import Document
 from qdrant_client import models
 from qdrant_client.models import Filter
 
-from src.startup import get_vectorstore_setup
+from src import create_logger
+from src.startup import get_bm25_setup, get_vectorstore_setup
 from src.utilities.tools.helpers import (
     aduckduckgo_search,
-    build_bm25_index,
     keyword_search,
     rerank_documents,
     tavily_search_tool,
 )
+
+logger = create_logger(name="retrieval")
 
 
 async def avector_search_tool(
@@ -111,24 +113,35 @@ async def ahybrid_search_tool(
     _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
-        documents = _vs_setup.get_documents()
 
     if vectorstore is None:
         raise RuntimeError(
             "Vector store not initialized. Call set_vectorstore_setup(VectorStoreSetup) "
             "during app startup and ensure it is ready before using avector_search_tool."
         )
-    if documents is None:
+
+    _bm25_setup = get_bm25_setup()
+    if _bm25_setup is not None and _bm25_setup.is_ready():
+        bm25_dict: dict[str, Any] | None = _bm25_setup.get_model_dict()
+    if bm25_dict is None:
         raise RuntimeError(
-            "No documents available in VectorStoreSetup for keyword search."
+            "BM25 model not initialized. Call set_bm25_setup(BM25Setup) during app startup "
+            "and ensure it is ready before using keyword_search."
         )
-    bm25_dict: dict[str, Any] = build_bm25_index(documents)
+    logger.info("Performing hybrid search")
 
     tasks: list[Coroutine[Any, Any, list[Document]]] = [
         avector_search_tool(query=query, filter=filter, k=k),  # type: ignore
         akeyword_search_tool(query=query, k=k),  # type: ignore
     ]
     semantic_docs, kw_docs = await asyncio.gather(*tasks)
+
+    # Create a unified document dictionary from both search results
+    all_docs: dict[str, Document] = {}
+    for doc in semantic_docs + kw_docs:
+        doc_id = doc.metadata["chunk_id"]
+        if doc_id not in all_docs:
+            all_docs[doc_id] = doc
 
     # Results of vector and kw search
     res_ids: list[list[str]] = [
@@ -150,7 +163,7 @@ async def ahybrid_search_tool(
         rrf_dict.keys(), key=lambda x: rrf_dict[x], reverse=True
     )[:k]
 
-    return [bm25_dict["doc_dict"][_id] for _id in ranked_ids]
+    return [all_docs[_id] for _id in ranked_ids]
 
 
 async def arerank_documents(
@@ -172,6 +185,7 @@ async def arerank_documents(
     list[Document]
         Documents sorted by relevance score in descending order.
     """
+    logger.info("Performing document reranking")
     return await asyncio.to_thread(rerank_documents, query, documents, k)
 
 
