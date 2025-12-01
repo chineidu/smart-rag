@@ -2,8 +2,16 @@ import asyncio
 import json
 from typing import Any, Callable, Coroutine, cast
 
+from langchain.messages import RemoveMessage
 from langchain_core.documents.base import Document
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+)
+from langchain_core.runnables.config import RunnableConfig
+from langgraph.store.base import BaseStore
 from langsmith import traceable
 
 from src import create_logger
@@ -15,9 +23,17 @@ from src.schemas.nodes_schema import (
     RetrieverMethod,
     ReWrittenQuery,
     Step,
+    StructuredMemoryResponse,
     ValidateQuery,
 )
-from src.schemas.types import NextAction, RetrieverMethodType, ToolsType
+from src.schemas.types import (
+    MemoryKeys,
+    NextAction,
+    RetrieverMethodType,
+    SectionNamesType,
+    SummarizationConditionType,
+    ToolsType,
+)
 from src.state import State, StepState
 from src.utilities.llm_utils import remote_llm
 from src.utilities.tools.tools import (
@@ -28,6 +44,7 @@ from src.utilities.tools.tools import (
     avector_search_tool,
 )
 from src.utilities.utils import (
+    append_memory,
     convert_langchain_messages_to_dicts,
     get_structured_output,
 )
@@ -37,6 +54,8 @@ logger = create_logger("nodes")
 # Constants
 FETCH_FULL_PAGE: bool = app_config.custom_config.fetch_full_page
 K: int = app_config.custom_config.k
+RERANK_K: int = app_config.custom_config.rerank_k
+MAX_MESSAGES: int = app_config.custom_config.max_messages
 MAX_CHARS: int | None = app_config.custom_config.max_chars
 MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
 
@@ -47,29 +66,7 @@ retrieval_method_dicts: dict[str, RetrieverFn] = {
     RetrieverMethodType.HYBRID_SEARCH: ahybrid_search_tool,
 }
 prompt_builder = PromptsBuilder()
-section_titles: list[str] = [
-    "ITEM 1. BUSINESS",
-    "ITEM 1A. RISK FACTORS",
-    "ITEM 1B. UNRESOLVED STAFF COMMENTS",
-    "ITEM 2. PROPERTIES",
-    "ITEM 3. LEGAL PROCEEDINGS",
-    "ITEM 4. MINE SAFETY DISCLOSURES",
-    "ITEM 5. MARKET FOR REGISTRANT’S COMMON EQUITY, RELATED STOCKHOLDER MATTERS AND ISSUER PURCHASES OF EQUITY SECURITIES",
-    "ITEM 6. [RESERVED]",
-    "ITEM 7. MANAGEMENT’S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS",
-    "ITEM 7A. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK",
-    "ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA",
-    "ITEM 9. CHANGES IN AND DISAGREEMENTS WITH ACCOUNTANTS ON ACCOUNTING AND FINANCIAL DISCLOSURE",
-    "ITEM 9A. CONTROLS AND PROCEDURES",
-    "ITEM 9C. DISCLOSURE REGARDING FOREIGN JURISDICTIONS THAT PREVENT INSPECTIONS",
-    "ITEM 10. DIRECTORS, EXECUTIVE OFFICERS AND CORPORATE GOVERNANCE",
-    "ITEM 11. EXECUTIVE COMPENSATION",
-    "ITEM 12. SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT AND RELATED STOCKHOLDER MATTERS",
-    "ITEM 13. CERTAIN RELATIONSHIPS AND RELATED TRANSACTIONS, AND DIRECTOR INDEPENDENCE",
-    "ITEM 14. PRINCIPAL ACCOUNTANT FEES AND SERVICES",
-    "ITEM 15. EXHIBIT AND FINANCIAL STATEMENT SCHEDULES",
-    "ITEM 16. FORM 10-K SUMMARY",
-]
+section_titles: list[str] = [section.value for section in SectionNamesType]
 
 
 # =========================================================
@@ -274,26 +271,6 @@ async def rerank_retrieved_documents(state: State) -> dict[str, Any]:
     return {"reranked_documents": reranked_docs}
 
 
-async def compression_documents(state: State) -> dict[str, Any]:
-    """Synthesize final context from reranked documents."""
-    reranked_documents: list[Document] = state["reranked_documents"]
-    # Get the details of the current step
-    current_step_idx: int = state["current_step_index"]
-    current_step: Step = state["plan"].steps[current_step_idx]
-
-    # Format document
-    user_query: str = f"<DOCUMENT>{format_documents(reranked_documents)}</DOCUMENT>"
-    sys_msg: str = prompt_builder.compression_prompt(question=current_step.question)
-    logger.info(
-        f"Synthesizing documents for Step {current_step_idx}: {current_step.question}"
-    )
-    response = await remote_llm.ainvoke(
-        [SystemMessage(sys_msg), HumanMessage(user_query)]
-    )
-
-    return {"synthesized_context": response.content}
-
-
 # =========================================================
 # ========================= NODES =========================
 # =========================================================
@@ -328,32 +305,37 @@ async def validate_query_node(state: State) -> dict[str, Any]:
         f"Next Action: {response.next_action} | Rationale: {response.rationale}"
     )
 
-    step_state: list[StepState] = [
-        StepState(
-            step_index=-1,
-            question=user_question,
-            rewritten_queries=[],
-            retrieved_documents=[],
-            summary=response.rationale,
-        )
-    ]
+    step_state: dict[str, Any] = {
+        "step_index": -1,
+        "question": user_question,
+        "rewritten_queries": [],
+        "reranked_documents": [],
+        "summary": response.rationale,
+    }
 
     return {
         "current_step_index": -1,
         "is_related_to_context": response.is_related_to_context,
-        "step_state": step_state,
+        "step_state": [step_state],
         "plan": None,
+        "synthesized_context": state.get("synthesized_context", ""),
     }
 
 
 @traceable
-async def generate_plan_node(state: State) -> dict[str, Any]:
+async def generate_plan_node(
+    state: State, config: RunnableConfig, store: BaseStore
+) -> dict[str, Any]:
     """Generate a multi-step plan based on the user's question.
 
     Parameters
     ----------
     state : State
         Current state containing the original_question.
+    config : RunnableConfig
+        Configuration for the runnable, including user_id.
+    store : BaseStore
+        Store for retrieving user preferences and memory.
 
     Returns
     -------
@@ -363,19 +345,39 @@ async def generate_plan_node(state: State) -> dict[str, Any]:
     # If plan already exists, return empty update (no overwrite)
     if state.get("plan"):
         return {}
+    summary: str = state.get("conversation_summary", "")
+    user_question: str = state.get("original_question", "")
+    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
+
+    # ============== Process Long-term Memory ================
+    user_id: str = config["configurable"]["user_id"]
+
+    # Retrieve memory from the store
+    namespace_key: str = MemoryKeys.NAMESPACE_KEY.value
+    namespace: tuple[str, str] = (namespace_key, user_id)
+    key: str = MemoryKeys.USER_PREFERENCES_KEY.value
+    user_preferences = await store.aget(namespace, key)
+
+    # Extract memory if it exists
+    if user_preferences:
+        user_preferences_content: str = user_preferences.value.get(namespace_key)
+    else:
+        user_preferences_content = "No memory found."
 
     user_question: str = state["original_question"]
     user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
 
-    sys_msg = prompt_builder.planner_prompt(section_titles=" | ".join(section_titles))
+    sys_msg = prompt_builder.planner_prompt(
+        section_titles=" | ".join(section_titles),
+        summary=summary,
+        user_preferences_content=user_preferences_content,
+    )
 
     messages = convert_langchain_messages_to_dicts(
         messages=[SystemMessage(content=sys_msg), HumanMessage(content=user_query)]
     )
-    response = await get_structured_output(
-        messages=messages, model="x-ai/grok-4.1-fast:free", schema=Plan
-    )
-    response = cast(Plan, response)
+    response = await get_structured_output(messages=messages, model=None, schema=Plan)
+    plan_formatted: str = f"Multi-steps Plan:\n{format_plan(plan=response)}"
     logger.info(f"Number of steps: {len(response.steps)}...")
 
     return {
@@ -383,12 +385,18 @@ async def generate_plan_node(state: State) -> dict[str, Any]:
         "plan": response,
         "step_state": [],
         "current_step_index": 0,
+        "messages": [user_question, plan_formatted],
+        "retrieved_documents": state.get("retrieved_documents", []),
+        "reranked_documents": state.get("reranked_documents", []),
+        "synthesized_context": state.get("synthesized_context", ""),
+        "conversation_summary": state.get("conversation_summary", ""),
     }
 
 
 @traceable
 async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
     """Retrieve internal documents node."""
+
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
@@ -418,17 +426,21 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
         target_section=current_step.target_section,
         k=K,
     )
-    step_state = StepState(
-        step_index=current_step_idx,
-        question=current_step.question,
-        rewritten_queries=rewritten_queries,
-        retrieved_documents=retrieved_docs,
-        summary="",
+    reranked_docs: list[Document] = await arerank_documents(
+        query=current_step.question, documents=retrieved_docs, k=RERANK_K
     )
+    step_state = {
+        "step_index": current_step_idx,
+        "question": current_step.question,
+        "rewritten_queries": rewritten_queries,
+        "reranked_documents": reranked_docs,
+        "summary": "",
+    }
     # Update the state with retrieved docs and step_state
     return {
         "step_state": [step_state],
         "retrieved_documents": retrieved_docs,
+        "reranked_documents": reranked_docs,
     }
 
 
@@ -473,78 +485,76 @@ async def internet_search_node(state: State) -> dict[str, Any]:
     all_docs: list[list[Document]] = await asyncio.gather(*tasks)
     # Flatten the docs
     retrieved_docs: list[Document] = [doc for sublist in all_docs for doc in sublist]  # type: ignore
-
-    step_state = StepState(
-        step_index=current_step_idx,
-        question=current_step.question,
-        rewritten_queries=rewritten_queries,
-        retrieved_documents=retrieved_docs,
-        summary="",
+    reranked_docs: list[Document] = await arerank_documents(
+        query=current_step.question, documents=retrieved_docs, k=RERANK_K
     )
+
+    step_state = {
+        "step_index": current_step_idx,
+        "question": current_step.question,
+        "rewritten_queries": rewritten_queries,
+        "reranked_documents": reranked_docs,
+        "summary": "",
+    }
+
     # Update the state with retrieved docs and step_state
     return {
         "step_state": [step_state],
         "retrieved_documents": retrieved_docs,
+        "reranked_documents": reranked_docs,
     }
 
 
 @traceable
-async def rerank_and_compress_node(state: State) -> dict[str, Any]:
-    """Rerank documents and then synthesize final context.
+async def compress_documents_node(state: State) -> dict[str, Any]:
+    """Compress reranked documents for each step."""
 
-    Parameters
-    ----------
-    state : State
-        The current state containing retrieved documents and other info.
-
-    Returns
-    -------
-    dict[str, Any]
-        Updated state with reranked documents and synthesized context.
-    """
-    rerank_result = await rerank_retrieved_documents(state)
-    # Update state with reranked documents
-    updated_state = {**state, **rerank_result}  # type: ignore
-    compression_result = await compression_documents(updated_state)  # type: ignore
-    return {**rerank_result, **compression_result}
-
-
-@traceable
-async def summarization_node(state: State) -> dict[str, Any]:
-    """Synthesize final context from reranked documents. This node is also responsible for moving to
-    the next step in the multi-step plan.
-    """
-
-    synthesized_context: str = state["synthesized_context"]
+    reranked_documents: list[Document] = state["reranked_documents"]
+    print(f"Reranked Documents (Here): {reranked_documents}")  # Debug line
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
-    rewritten_queries = [
-        step for step in state["step_state"] if current_step_idx == step["step_index"]
-    ][0]["rewritten_queries"]
 
     # Format document
-    context: str = f"<CONTEXT>{synthesized_context}</CONTEXT>"
-    sys_msg: str = prompt_builder.summarization_prompt(question=current_step.question)
-    logger.info(f"Summarizing for Step {current_step_idx}: {current_step.question}")
-    response = await remote_llm.ainvoke([SystemMessage(sys_msg), HumanMessage(context)])
-
-    new_step_state: StepState = StepState(
-        step_index=current_step_idx,
-        question=current_step.question,
-        rewritten_queries=rewritten_queries,
-        retrieved_documents=state["retrieved_documents"],
-        summary=response.content,  # type: ignore
+    user_query: str = f"<DOCUMENT>{format_documents(reranked_documents)}</DOCUMENT>"
+    sys_msg: str = prompt_builder.compression_prompt(question=current_step.question)
+    logger.info(
+        f"Synthesizing documents for Step {current_step_idx}: {current_step.question}"
     )
+    response = await remote_llm.ainvoke(
+        [SystemMessage(sys_msg), HumanMessage(user_query)]
+    )
+
+    return {"step_index": current_step_idx, "synthesized_context": response.content}
+
+
+@traceable
+async def reflection_node(state: State) -> dict[str, Any]:
+    """This node is responsible for moving to the next step in the multi-step plan."""
+
+    synthesized_context: str = state["synthesized_context"]
+    reranked_documents: list[Document] = state["reranked_documents"]
+    print(f"Reranked Documents: {reranked_documents}")  # Debug line
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+
+    logger.info(f"Summarizing for Step {current_step_idx}: {current_step.question}")
+    new_step_state = {
+        "step_index": current_step_idx,
+        "summary": synthesized_context,
+    }
     logger.info(
         f"⚠️ Number of steps completed: {current_step_idx + 1} | Num iterations: {state.get('num_iterations', 0) + 1}"
     )
 
-    # Append the new step state to the existing list and increment current step index
     return {
-        "step_state": state.get("step_state", []) + [new_step_state],
         "current_step_index": current_step_idx + 1,
-        "synthesized_context": response.content,
+        # Append the new step state to the existing list
+        "step_state": state.get("step_state", []) + [new_step_state],
+        # Keep all messages for context
+        "messages": state.get("messages", []) + [synthesized_context],
+        # Move to the next step
         "num_iterations": state.get("num_iterations", 0) + 1,
     }
 
@@ -559,7 +569,7 @@ async def final_answer_node(state: State) -> dict[str, Any]:
     for i, step in enumerate(state["step_state"]):
         final_context += f"\n--- Findings from Research Step {i + 1} ---\n"
         # Include the source metadata (section or URL) for each document to enable citations.
-        for doc in step["retrieved_documents"]:
+        for doc in step["retrieved_documents"]:  # type: ignore
             source: str = doc.metadata.get("source_doc") or doc.metadata.get("url")  # type: ignore
             final_context += f"Source: {source}\nContent: {doc.page_content}\n\n"
 
@@ -604,6 +614,107 @@ def unrelated_query_node(state: State) -> dict[str, Any]:  # noqa: ARG001
     }
 
 
+async def overall_convo_summarization_node(state: State) -> dict[str, Any]:
+    """Summarization node to condense the conversation history."""
+    summary: str = state.get("conversation_summary", "")
+
+    if summary:
+        summary_msg: list[AnyMessage] = [
+            HumanMessage(
+                content=prompt_builder.overall_convo_summary_prompt(summary=summary)
+            )
+        ]
+    else:
+        summary_msg = [
+            HumanMessage(content=prompt_builder.no_existing_summary_prompt())
+        ]
+
+    try:
+        response: AIMessage = await remote_llm.ainvoke(state["messages"] + summary_msg)
+        logger.info("✅ Conversation history summarized.")
+
+    except Exception as e:
+        logger.error(f"⚠️ Error in summarization LLM call: {e}")
+        # Fallback to returning the existing summary if summarization fails
+        return {"summary": summary}
+
+    # Delete ALL but the last 2 messages
+    messages_to_remove = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]  # type: ignore
+
+    return {
+        # The `add_messages` reducer will handle removing the old messages
+        "messages": messages_to_remove,
+        # Add the new summary to the state
+        "conversation_summary": response.content,
+    }
+
+
+async def update_lt_memory_node(
+    state: State, config: RunnableConfig, store: BaseStore
+) -> None:
+    """Update user (long-term) memory based on the conversation."""
+    try:
+        user_id: str = config["configurable"]["user_id"]
+        namespace_key: str = MemoryKeys.NAMESPACE_KEY.value
+        namespace: tuple[str, str] = (namespace_key, user_id)
+        key: str = MemoryKeys.USER_PREFERENCES_KEY.value
+
+        # Get existing memory
+        user_preferences_content = await store.aget(namespace, key)
+        existing_memory: dict[str, Any] = (
+            user_preferences_content.value.get(namespace_key, {})
+            if user_preferences_content
+            else {}
+        )
+
+        # Format for prompt (convert dict to readable string)
+        if existing_memory:
+            formatted: str = "\n".join(
+                f"- {k}: {v}" for k, v in existing_memory.items() if v
+            )
+        else:
+            formatted = "No memory found."
+
+        sys_msg: str = prompt_builder.update_user_memory_prompt(
+            user_preferences_content=formatted
+        )
+        summary: str = state.get("conversation_summary", "")
+
+        # Build context
+        context = [SystemMessage(content=sys_msg)]
+        if summary:
+            context.append(SystemMessage(content=f"Summary: {summary}"))
+        # Add recent messages
+        context.extend(state["messages"])
+
+        try:
+            messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
+                context
+            )
+            new_memory: StructuredMemoryResponse = await get_structured_output(  # type: ignore
+                messages=messages,
+                model=None,
+                schema=StructuredMemoryResponse,
+            )
+        except Exception as e:
+            logger.error(f"⚠️ Error in memory update: {e}")
+            return
+
+        if new_memory:
+            # Simple append: existing + new
+            updated_memory: dict[str, Any] = append_memory(
+                existing_memory, new_memory.model_dump()
+            )  # type: ignore
+
+            await store.aput(namespace, key, value={"memory": updated_memory})
+            logger.info("💥 Memory updated")
+
+    except Exception as e:
+        logger.error(f"⚠️ Error in update_memory_node: {e}")
+
+    return
+
+
 # =========================================================
 # =================== CONDITIONAL NODES ===================
 # =========================================================
@@ -625,6 +736,14 @@ def route_by_tool_condition(state: State) -> ToolsType:
     return current_step.tool
 
 
+def should_summarize_overal_convo(state: State) -> SummarizationConditionType:
+    """Edge to determine if summarization is needed."""
+    if len(state["messages"]) > MAX_MESSAGES:
+        return SummarizationConditionType.SUMMARIZE
+
+    return SummarizationConditionType.END
+
+
 async def should_continue_condition(
     state: State, max_reasoning_interations: int = 8
 ) -> NextAction:
@@ -642,7 +761,7 @@ async def should_continue_condition(
     NextAction
         The next action to take (CONTINUE or FINISH).
     """
-    print("--- Evaluating Multi Step Reasoning Policy ---")
+    logger.info("--- Evaluating Multi Step Reasoning Policy ---")
     is_related_to_context: bool = state.get("is_related_to_context", True)
     current_step_idx: int = state["current_step_index"]
     num_iterations: int = state.get("num_iterations", 0)

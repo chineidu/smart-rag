@@ -83,6 +83,7 @@ class Settings(BaseSettingsConfig):
     WORKERS: int = 2
     RELOAD: bool = False
     DEBUG: bool = False
+    LIMIT_VALUE: int = 60  # Rate limiting value
 
     @field_validator(
         "PORT", "POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before"

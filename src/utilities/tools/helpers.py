@@ -32,7 +32,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 class CustomTokenizer:
     """A class for ..."""
 
-    pattern_digits: str = r"[0-9]+"
+    # pattern_digits: str = r"[0-9]+"
     pattern_punctuation: str = r"[^\w\s\\\/]"  # Includes `\`, `/`
     pattern_spaces: str = r"\s{2,}"
     pattern_split: str = r"\W"
@@ -52,7 +52,6 @@ class CustomTokenizer:
         transformations_list.extend(
             [  # type: ignore
                 normalizers.NFD(),
-                normalizers.Replace(Regex(self.pattern_digits), " "),
                 normalizers.Replace(Regex(self.pattern_punctuation), " "),
                 normalizers.StripAccents(),
                 normalizers.Strip(),

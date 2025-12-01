@@ -8,18 +8,21 @@ from langgraph.types import RetryPolicy
 from src import create_logger
 from src.config import app_config, app_settings
 from src.nodes import (
+    compress_documents_node,
     final_answer_node,
     generate_plan_node,
     internet_search_node,
-    rerank_and_compress_node,
+    overall_convo_summarization_node,
+    reflection_node,
     retrieve_internal_docs_node,
     route_by_tool_condition,
     should_continue_condition,
-    summarization_node,
+    should_summarize_overal_convo,
     unrelated_query_node,
+    update_lt_memory_node,
     validate_query_node,
 )
-from src.schemas.types import NextAction, ToolsType
+from src.schemas.types import NextAction, SummarizationConditionType, ToolsType
 from src.state import State
 
 logger = create_logger(name="graph_manager")
@@ -144,16 +147,16 @@ class GraphManager:
             ),
         )
         builder.add_node(
-            "rerank_and_compress",
-            rerank_and_compress_node,
+            "compress_documents",
+            compress_documents_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
 
         builder.add_node(
-            "summarize",
-            summarization_node,
+            "reflect",
+            reflection_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
@@ -161,6 +164,20 @@ class GraphManager:
         builder.add_node(
             "final_answer",
             final_answer_node,
+            retry_policy=RetryPolicy(
+                max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
+            ),
+        )
+        builder.add_node(
+            "overall_convo_summarization",
+            overall_convo_summarization_node,
+            retry_policy=RetryPolicy(
+                max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
+            ),
+        )
+        builder.add_node(
+            "update_lt_memory",
+            update_lt_memory_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
@@ -187,15 +204,24 @@ class GraphManager:
             },
         )
 
-        builder.add_edge("retrieve_internal_docs", "rerank_and_compress")
-        builder.add_edge("internet_search", "rerank_and_compress")
-        builder.add_edge("rerank_and_compress", "summarize")
+        builder.add_edge("retrieve_internal_docs", "compress_documents")
+        builder.add_edge("internet_search", "compress_documents")
+        builder.add_edge("compress_documents", "reflect")
         builder.add_conditional_edges(
-            "summarize",
+            "reflect",
             should_continue_condition,  # function to determine next action
             {NextAction.CONTINUE: "generate_plan", NextAction.FINISH: "final_answer"},
         )
-        builder.add_edge("final_answer", END)
+        builder.add_edge("final_answer", "update_lt_memory")
+        builder.add_conditional_edges(
+            "update_lt_memory",
+            should_summarize_overal_convo,  # function to determine if summarization is needed,
+            {
+                SummarizationConditionType.SUMMARIZE: "overall_convo_summarization",
+                SummarizationConditionType.END: END,
+            },
+        )
+        builder.add_edge("update_lt_memory", END)
         builder.add_edge("unrelated_query", END)
 
         # Compile the graph with persistent Postgres checkpointer

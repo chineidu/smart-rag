@@ -14,8 +14,10 @@ config:
       - news related to Nvidia and industry trends
     fetch_full_page: true
     k: 5
+    rerank_k: 3
     max_chars: null
     max_attempts: 3
+    max_messages: 20
 
   llm_model_config:
     creative_model:

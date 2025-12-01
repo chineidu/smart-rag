@@ -1,6 +1,6 @@
 """Prompt templates for various agent interactions."""
 
-query_validation_prompt: str = """
+_query_validation_prompt: str = """
 <SYSTEM>
     <ROLE>Expert analyzing and validating user questions.</ROLE>
     <TOPICS>{topics}</TOPICS>
@@ -12,9 +12,11 @@ query_validation_prompt: str = """
 </SYSTEM>
 """
 
-planner_prompt: str = """
+_planner_prompt: str = """
 <SYSTEM>
-    <ROLE>Expert decomposing user queries into efficient multi-step plans.</ROLE>
+    <ROLE>Expert decomposing user queries into efficient multi-step plans with access to user
+    preferences and previous interactions.
+    </ROLE>
 
     <GUIDELINES>
         - Create 2-5 logical steps that build upon each other (use more ONLY if absolutely necessary)
@@ -24,6 +26,8 @@ planner_prompt: str = """
         - Each step needs clear rationale for why it's necessary
         - Make questions specific and focused for targeted retrieval
         - For `vector_store`, ALWAYS specify `target_section`
+        - Use the user's preferences to guide planning
+        - Consider previous interactions to avoid redundant steps
     </GUIDELINES>
 
     <SECTIONS>{section_titles}</SECTIONS>
@@ -33,6 +37,9 @@ planner_prompt: str = """
         - vector_store: Search internal documents by section
     </TOOLS>
 
+    <PREVIOUS_SUMMARY>{summary}</PREVIOUS_SUMMARY>
+    <MEMORY>{user_preferences_content}</MEMORY>
+
     <OUTPUT>
         Return Plan with Steps containing: question, rationale, tool, search_keywords (3-5), target_section
     </OUTPUT>
@@ -40,7 +47,7 @@ planner_prompt: str = """
 """
 
 
-retriever_type_prompt: str = """
+_retriever_type_prompt: str = """
 <ROLE>You are an expert at selecting optimal retrieval methods based on query characteristics.</ROLE>
 
 <QUERY>{question}</QUERY>
@@ -53,14 +60,14 @@ retriever_type_prompt: str = """
 </METHODS>
 """
 
-query_rewriter_prompt: str = """
+_query_rewriter_prompt: str = """
 <ROLE>Query optimizer for document retrieval and web search.</ROLE>
 
 <GUIDELINES>
     - Extract core intent, remove ambiguity
     - Use specific, domain-relevant terms
     - Retain critical details (names, dates, figures)
-    - Output 5-10 keywords/phrases
+    - Output 3-7 keywords/phrases
 </GUIDELINES>
 
 <QUERY>{question}</QUERY>
@@ -69,7 +76,7 @@ query_rewriter_prompt: str = """
 <OUTPUT>Return 3-7 query variations capturing original intent.</OUTPUT>
 """
 
-decision_prompt: str = """
+_decision_prompt: str = """
 <SYSTEM>
     <ROLE>
         Master strategist evaluating research progress and determining optimal next actions.
@@ -120,14 +127,14 @@ decision_prompt: str = """
 </SYSTEM>
 """
 
-compression_prompt: str = """
+_compression_prompt: str = """
 <SYSTEM>
     <ROLE>Expert analyst — compress retrieved content into a single, dense, factual paragraph.</ROLE>
 
     <QUERY>{question}</QUERY>
 
     <REQUIREMENTS>
-        - Exactly one paragraph, 3–6 sentences
+        - Exactly one paragraph, 3-6 sentences
         - Include all key facts, figures, dates, names, and precise details
         - Focus only on information most relevant to the query
         - Remain 100% objective — no interpretation, opinions, or added commentary
@@ -135,66 +142,13 @@ compression_prompt: str = """
         - Start directly with the content (never "The document states…", "According to…", etc.)
     </REQUIREMENTS>
 
-    <OUTPUT_FORMAT>
-        First line: [Source: [<concise title if none exists>](<URL>)]
-        Second line: Content: <single dense paragraph>
-
-        <EXAMPLE>
-            [Source: [NVIDIA 2023 10-K Risk Factors](https://nvidia.com/10k-2023.pdf)]
-            Content: NVIDIA faces intense competition...
-        </EXAMPLE>
-    </OUTPUT_FORMAT>
 </SYSTEM>
 """
 
-summarization_prompt: str = """
+
+_final_answer_prompt: str = """
 <SYSTEM>
-    <ROLE>
-        Research assistant creating concise summaries of retrieved findings
-        for multi-step reasoning continuity.
-    </ROLE>
-
-    <TASK>
-        Summarize the key findings from the context in ONE clear sentence that:
-        - Directly answers the sub-question
-        - Includes specific facts, numbers, or conclusions with citations
-        - Can be referenced by subsequent reasoning steps
-        - Remains factual without interpretation
-    </TASK>
-
-    <FORMAT>
-        Write a single declarative sentence. Avoid phrases like "The context shows..."
-        or "According to the document..." Start directly with the finding.
-    </FORMAT>
-
-    <EXAMPLES>
-        Query: "What were Apple's R&D expenses in 2023?"
-        Good: "Apple's R&D expenses were $29.9 billion in fiscal 2023, representing 7.8% of net sales."
-        Poor: "The context indicates that Apple spent money on research and development."
-
-        Query: "What are the company's main competitive risks?"
-        Good: "The company faces competitive risks from pricing pressure, rapid technological change, and new market
-        entrants in emerging economies."
-        Poor: "There are several competitive risks mentioned in the document."
-    </EXAMPLES>
-
-    <OUTPUT_FORMAT>
-        First line: [Source: [<concise title if none exists>](<URL>)]
-        Second line: Content: <ssummarized content>
-
-        <EXAMPLE>
-            [Source: [NVIDIA 2023 10-K Risk Factors](https://nvidia.com/10k-2023.pdf)]
-            Content: NVIDIA faces intense competition...
-        </EXAMPLE>
-    </OUTPUT_FORMAT>
-
-    <QUERY>{question}</QUERY>
-</SYSTEM>
-"""
-
-final_answer_prompt: str = """
-<SYSTEM>
-    Expert at synthesizing research from multiple sources into brief, well-cited answers.
+    Expert at synthesizing research from multiple sources into brief, well-cited answers with personalized context.
 
     <TASK>
         Integrate internal documents and web sources into a coherent narrative answering the user's question.
@@ -237,7 +191,129 @@ final_answer_prompt: str = """
         - Mixed citation formats
     </AVOID>
 
+    <CRITICAL>
+        - DO NOT MAKE ANY ASSUMPTIONS OR USE INFORMATION OUTSIDE THE PROVIDED CONTEXT. Use ONLY the provided context.
+
+    </CRITICAL>
+
+    <USER_ID>{user_id}</USER_ID>
     <QUERY>{question}</QUERY>
+</SYSTEM>
+"""
+
+_overall_convo_summary_prompt: str = """
+<PROMPT>
+    <ROLE>
+        You are updating a cumulative conversation summary. This summary helps maintain context as the
+        conversation continues.
+    </ROLE>
+
+    <GUIDELINES>
+        Capture:
+        - Main topic of the conversation
+        - Key technical decisions and solutions discussed
+        - What the user is trying to achieve
+        - What steps have been completed
+        - What questions remain open
+        - Key context required for the NEXT assistant turn
+        Important:
+        - Distinguish between the user and assistant messages
+        - Keep it under 500 words
+        - Only return the updated summary text - no explanations or headers
+    </GUIDELINES>
+
+    <PREVIOUS_SUMMARY>
+    {summary}
+    </PREVIOUS_SUMMARY>
+
+    <INSTRUCTION>
+        Review the conversation above and create an UPDATED summary that:
+        1. Keeps relevant information from the previous summary
+        2. Adds important new information from recent messages
+        3. Removes resolved or outdated topics
+        4. Maintains enough context for the conversation to continue naturally
+
+        Return ONLY the updated summary text.
+    </INSTRUCTION>
+
+</PROMPT>
+"""
+
+_no_existing_summary_prompt: str = """
+<USER>
+    <ROLE>
+        You are creating the first summary of this conversation. This summary helps maintain context as
+        the conversation continues.
+    </ROLE>
+
+    <GUIDELINES>
+        Capture:
+        - Main topic of the conversation
+        - Key technical decisions and solutions discussed
+        - What the user is trying to achieve
+        - What steps have been completed
+        - What questions remain open
+        - Key context required for the NEXT assistant turn
+        Important:
+        - Distinguish between the user and assistant messages
+        - Keep it concise (under 200 words)
+        - Only return the updated summary text - no explanations or headers
+    </GUIDELINES>
+
+    <INSTRUCTION>
+        Review the conversation above and create a summary that captures:
+        - Main topics discussed
+        - Key technical details
+        - Decisions or conclusions reached
+        - Any ongoing questions or next steps
+        Return ONLY the summary text.
+    </INSTRUCTION>
+
+</USER>
+"""
+
+
+_update_user_memory_prompt: str = """
+<SYSTEM>
+
+    <ROLE>
+        You are responsible for updating and maintaining accurate user memory to enable
+        personalized responses.
+    </ROLE>
+
+    <MEMORY>
+    Current stored long-term memory:
+    {user_preferences_content}
+    </MEMORY>
+
+    <GUIDELINES>
+
+        <EXTRACTION>
+            Only store information that meets ALL of these:
+            - It is stable or persistent (not temporary or situational)
+            - It influences how future answers should be customized
+            - It is not short-lived or specific to only the current task
+            - It follows the structured
+        </EXTRACTION>
+
+        <UPDATE_RULES>
+            1. If no new information is present in either summary or messages, return the existing memory unchanged
+            2. If new information is found:
+            - PRESERVE all existing memory entries unless directly contradicted
+            - ADD new information by merging with existing entries
+            - If new info contradicts existing memory, REPLACE only that specific detail
+            3. Always return the COMPLETE memory structure with all fields
+            4. Use the structured schema - populate all applicable fields
+        </UPDATE_RULES>
+
+        <CRITICAL>
+            - Extract information from BOTH summary and recent messages
+            - NEVER lose existing information - always include all previous details
+            - Return COMPLETE structured data, not a bulleted list
+        </CRITICAL>
+
+    </GUIDELINES>
+
 </SYSTEM>
 """
 
@@ -245,22 +321,30 @@ final_answer_prompt: str = """
 class PromptsBuilder:
     """Container for prompt templates."""
 
-    QUERY_VALIDATION_PROMPT = query_validation_prompt
-    PLANNER_PROMPT = planner_prompt
-    RETRIEVER_TYPE_PROMPT = retriever_type_prompt
-    QUERY_REWRITER_PROMPT = query_rewriter_prompt
-    DECISION_PROMPT = decision_prompt
-    COMPRESSION_PROMPT = compression_prompt
-    SUMMARIZATION_PROMPT = summarization_prompt
-    FINAL_ANSWER_PROMPT = final_answer_prompt
+    QUERY_VALIDATION_PROMPT = _query_validation_prompt
+    PLANNER_PROMPT = _planner_prompt
+    RETRIEVER_TYPE_PROMPT = _retriever_type_prompt
+    QUERY_REWRITER_PROMPT = _query_rewriter_prompt
+    DECISION_PROMPT = _decision_prompt
+    COMPRESSION_PROMPT = _compression_prompt
+    FINAL_ANSWER_PROMPT = _final_answer_prompt
+    OVERALL_CONVO_SUMMARY_PROMPT = _overall_convo_summary_prompt
+    NO_EXISTING_SUMMARY_PROMPT = _no_existing_summary_prompt
+    UPDATE_USER_MEMORY_PROMPT = _update_user_memory_prompt
 
     def query_validation_prompt(self, topics: str) -> str:
         """Generate the query validation prompt with specified topics."""
         return self.QUERY_VALIDATION_PROMPT.format(topics=topics)
 
-    def planner_prompt(self, section_titles: str) -> str:
+    def planner_prompt(
+        self, section_titles: str, summary: str, user_preferences_content: str
+    ) -> str:
         """Generate the planner prompt with specified section titles."""
-        return self.PLANNER_PROMPT.format(section_titles=section_titles)
+        return self.PLANNER_PROMPT.format(
+            section_titles=section_titles,
+            summary=summary,
+            user_preferences_content=user_preferences_content,
+        )
 
     def retriever_type_prompt(self, question: str) -> str:
         """Generate the retriever type prompt with specified question."""
@@ -280,10 +364,20 @@ class PromptsBuilder:
         """Generate the compression prompt with specified question."""
         return self.COMPRESSION_PROMPT.format(question=question)
 
-    def summarization_prompt(self, question: str) -> str:
-        """Generate the summarization prompt with specified question."""
-        return self.SUMMARIZATION_PROMPT.format(question=question)
-
     def final_answer_prompt(self, question: str) -> str:
         """Generate the final answer prompt with specified question."""
         return self.FINAL_ANSWER_PROMPT.format(question=question)
+
+    def overall_convo_summary_prompt(self, summary: str) -> str:
+        """Generate the overall conversation summary prompt with specified summary."""
+        return self.OVERALL_CONVO_SUMMARY_PROMPT.format(summary=summary)
+
+    def no_existing_summary_prompt(self) -> str:
+        """Generate the no existing summary prompt."""
+        return self.NO_EXISTING_SUMMARY_PROMPT
+
+    def update_user_memory_prompt(self, user_preferences_content: str) -> str:
+        """Generate the update user memory prompt with specified user preferences content."""
+        return self.UPDATE_USER_MEMORY_PROMPT.format(
+            user_preferences_content=user_preferences_content
+        )

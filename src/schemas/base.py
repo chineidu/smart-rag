@@ -1,7 +1,9 @@
-from typing import Annotated
+from typing import Annotated, Any, Generic, Iterator
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict  # type: ignore
 from pydantic.alias_generators import to_camel
+
+from src.schemas.types import T
 
 
 def round_probability(value: float) -> float:
@@ -41,3 +43,86 @@ class BaseSchema(BaseModel):
         frozen=True,  # Make instances immutable
         use_enum_values=True,  # Serialize enums as their values
     )
+
+
+class ModelList(BaseModel, Generic[T]):
+    """Generic container for lists of Pydantic BaseModel objects.
+
+    This class provides type-safe handling of any BaseModel subclass,
+    including LangChain Documents, with validation and utility methods.
+
+    Parameters
+    ----------
+    items : list[T]
+        List of BaseModel instances.
+
+    Examples
+    --------
+    >>> # With Documents
+    >>> docs = ModelList[Document](items=[
+    ...     Document(page_content="Hello", metadata={"source": "test"}),
+    ...     Document(page_content="World", metadata={"source": "test2"})
+    ... ])
+
+    >>> # With custom Pydantic models
+    >>> class User(BaseModel):
+    ...     name: str
+    ...     age: int
+    >>>
+    >>> users = ModelList[User](items=[
+    ...     User(name="Alice", age=30),
+    ...     User(name="Bob", age=25)
+    ... ])
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    items: list[T]
+
+    def __len__(self) -> int:
+        """Return the number of items."""
+        return len(self.items)
+
+    def __getitem__(self, index: int) -> T:
+        """Get item by index."""
+        return self.items[index]
+
+    def __iter__(self) -> Iterator[T]:
+        """Make the container iterable."""
+        return iter(self.items)
+
+    def append(self, item: T) -> None:
+        """Add an item to the list."""
+        self.items.append(item)
+
+    def extend(self, items: list[T]) -> None:
+        """Extend the list with multiple items."""
+        self.items.extend(items)
+
+    def to_dicts(self) -> list[dict[str, Any]]:
+        """Convert all items to dictionaries."""
+        return [
+            item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            for item in self.items
+        ]
+
+    @classmethod
+    def from_dicts(
+        cls, data: list[dict[str, Any]], model_class: type[T]
+    ) -> "ModelList[T]":
+        """Create a ModelList from a list of dictionaries.
+
+        Parameters
+        ----------
+        data : list[dict[str, Any]]
+            List of dictionaries to convert.
+        model_class : type[T]
+            The Pydantic model class to instantiate.
+
+        Returns
+        -------
+        ModelList[T]
+            A new ModelList instance.
+        """
+        items = [model_class(**item) for item in data]
+        return cls(items=items)

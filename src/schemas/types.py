@@ -1,6 +1,15 @@
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
 
-from diskcache.core import UNKNOWN
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+
+    from src.schemas.base import ModelList
+
+type MemoryData = "ModelList[T] | list[dict[str, Any]] | dict[str, Any] | TypedDict"  # type: ignore
+
+# TypeVar bound to BaseModel - accepts any Pydantic model
+T = TypeVar("T", bound="BaseModel")
 
 
 class RetrieverMethodType(StrEnum):
@@ -25,6 +34,13 @@ class NextAction(StrEnum):
     FINISH = "finish"
 
 
+class SummarizationConditionType(StrEnum):
+    """Condition to determine if overall conversation summarization is needed."""
+
+    SUMMARIZE = "summarize"
+    END = "END"
+
+
 class FileFormatsType(StrEnum):
     """The type of file to process."""
 
@@ -41,6 +57,8 @@ class ErrorCodeEnum(StrEnum):
     MODEL_NOT_FOUND = "model_not_found"
     PREDICTION_ERROR = "prediction_error"
     RESOURCES_NOT_FOUND = "resources_not_found"
+    TIMEOUT_ERROR = "timeout_error"
+    UNEXPECTED_ERROR = "unexpected_error"
 
 
 class ResourcesType(StrEnum):
@@ -51,7 +69,14 @@ class ResourcesType(StrEnum):
     GRAPH = "graph"
     RATE_LIMITER = "rate_limiter"
     VECTOR_STORE = "vector_store"
-    UNKNOWN = UNKNOWN
+    UNKNOWN = "unknown"  # Used when the resource type is not recognized
+
+
+class MemoryKeys(StrEnum):
+    """The keys used for storing and retrieving memory content."""
+
+    NAMESPACE_KEY = "memory"
+    USER_PREFERENCES_KEY = "user_preferences"
 
 
 class SectionNamesType(StrEnum):

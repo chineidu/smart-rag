@@ -44,11 +44,18 @@ class CustomConfig(BaseSchema):
         5,
         description="Number of top documents to retrieve per query before deduplication.",
     )
+    rerank_k: int = Field(
+        3,
+        description="Number of top documents to rerank after initial retrieval.",
+    )
     max_chars: int | None = Field(
         description="Maximum characters to return per result. If None, no truncation."
     )
     max_attempts: int = Field(
         3, description="The maximum number of times to retry an operation."
+    )
+    max_messages: int = Field(
+        20, description="Maximum number of messages to keep in conversation history."
     )
 
 

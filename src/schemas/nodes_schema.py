@@ -58,3 +58,34 @@ class RetrieverMethod(BaseModel):
 class Decision(BaseModel):
     next_action: NextAction = Field(..., description="The next action to take.")
     rationale: str = Field(description="The brief reasoning behind the decision.")
+
+
+class StructuredMemoryResponse(BaseModel):
+    """Schema for structured memory response."""
+
+    # Long-term (durable) information
+    technical_preferences: list[str] = Field(
+        default_factory=list,
+        description="User's technical preferences and expertise level",
+    )
+    communication_preferences: list[str] = Field(
+        default_factory=list,
+        description="User's communication preferences and style",
+    )
+    constraints: list[str] = Field(
+        default_factory=list,
+        description="Standing limitations or constraints. (e.g., avoid using things specified by the user)",
+    )
+    interests: list[str] = Field(
+        default_factory=list,
+        description="User's hobbies, interests, and activities they enjoy",
+    )
+    #
+    pain_points: list[str] = Field(
+        default_factory=list,
+        description="Challenges, pain points, or recurring issues the user faces",
+    )
+    other_preferences: list[str] = Field(
+        default_factory=list,
+        description="Any other relevant user details that don't fit other categories",
+    )

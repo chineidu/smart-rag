@@ -4,7 +4,7 @@ import unicodedata
 from glob import glob
 from pathlib import Path
 from re import Match, Pattern
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
 from bs4 import BeautifulSoup
@@ -21,11 +21,13 @@ from langsmith import traceable
 from markdownify import markdownify as md
 from pydantic import BaseModel
 
-from src.schemas.types import FileFormatsType
+from src.schemas.base import ModelList
+from src.schemas.types import FileFormatsType, MemoryData, T
 from src.utilities.client import HTTPXClient, get_instructor_openrouter_client
 from src.utilities.model_config import RemoteModel
 
-type PydanticModel = type[BaseModel]
+if TYPE_CHECKING:
+    from src.state import StepState
 
 
 def merge_dicts(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
@@ -40,7 +42,7 @@ def merge_dicts(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
 async def get_structured_output(
     messages: list[dict[str, Any]],
     model: RemoteModel,
-    schema: PydanticModel,
+    schema: type[T],
 ) -> BaseModel:
     """
     Retrieves structured output from a chat completion model.
@@ -593,3 +595,314 @@ def load_all_documents(
     print(f"Loaded {len(docs)} documents from {len(filepaths)} filepaths.")
 
     return docs
+
+
+def dedupe_model_list(model_list: ModelList[T]) -> ModelList[T]:
+    """De-duplicate a ModelList by converting to JSON for comparison.
+
+    Parameters
+    ----------
+    model_list : ModelList[T]
+        Input ModelList to deduplicate.
+
+    Returns
+    -------
+    ModelList[T]
+        De-duplicated ModelList.
+    """
+    seen = set()
+    unique_items: list[T] = []
+
+    for item in model_list:
+        # Convert to dict for comparison - use mode='json' for full serialization
+        item_dict = (
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+        )
+
+        try:
+            key = json.dumps(item_dict, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            # Fallback for non-serializable objects
+            key = str(sorted(item_dict.items()))
+
+        if key not in seen:
+            seen.add(key)
+            unique_items.append(item)
+
+    return ModelList[T](items=unique_items)
+
+
+def dedupe_dicts(lst: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De-duplicate a list of dictionaries.
+
+    Parameters
+    ----------
+    lst : list[dict[str, Any]]
+        Input list of dictionaries or BaseModel instances.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        De-duplicated list of dictionaries.
+    """
+    seen = set()
+    out: list[dict[str, Any]] = []
+    for data in lst:
+        # Convert BaseModel to dict if needed
+        if isinstance(data, BaseModel):
+            # Use mode='json' to ensure nested objects are also serialized
+            item_dict = (
+                data.model_dump(mode="json")
+                if hasattr(data, "model_dump")
+                else dict(data)
+            )
+        else:
+            item_dict = data
+
+        try:
+            key = json.dumps(item_dict, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            # Fallback: convert to string representation if JSON serialization fails
+            key = str(sorted(item_dict.items()))
+
+        if key not in seen:
+            seen.add(key)
+            out.append(item_dict)
+
+    return out
+
+
+def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
+    """Merge new memory data into existing memory, appending lists of dicts and merging dicts.
+
+    Parameters
+    ----------
+    existing: MemoryData
+        The existing memory data.
+    new: MemoryData
+        The new memory data to merge.
+
+    Returns
+    -------
+    MemoryData
+        The merged memory data.
+    """
+    # Handle empty cases
+    if not existing or (isinstance(existing, (list, ModelList)) and len(existing) == 0):
+        return new
+
+    if not new or (isinstance(new, (list, ModelList)) and len(new) == 0):
+        return existing
+
+    # Type checking
+    if type(existing) is not type(new):
+        raise ValueError(
+            f"Existing and new memory data must be of the same type. Got {type(existing)} and {type(new)}"
+        )
+
+    if isinstance(existing, list) and isinstance(new, list):
+        if isinstance(existing[0], BaseModel) or isinstance(new[0], BaseModel):
+            existing, new = (
+                ModelList[BaseModel](items=existing),  # type: ignore
+                ModelList[BaseModel](items=new),  # type: ignore
+            )
+
+    # Case 1: Both are ModelList - merge and deduplicate
+    if isinstance(existing, ModelList) and isinstance(new, ModelList):
+        # Combine items
+        combined = ModelList[T](items=list(existing) + list(new))  # type: ignore
+        # Deduplicate and return
+        return dedupe_model_list(combined).items
+
+    # Case 2: Both are list of dicts or BaseModels - merge as before
+    if isinstance(existing, list) and isinstance(new, list):
+        if not existing or not new:
+            return existing or new
+
+        # Check if items are dicts or BaseModels (for backwards compatibility)
+        if isinstance(existing[0], (dict, BaseModel)) and isinstance(
+            new[0], (dict, BaseModel)
+        ):
+            combined = existing + new
+            return dedupe_dicts(combined)
+
+    # Case 3: Both are dicts - merge dictionaries
+    if isinstance(existing, dict) and isinstance(new, dict):
+        result: dict[str, Any] = existing.copy()
+
+        for key, new_value in new.items():
+            # Skip None or empty values
+            if new_value is None or new_value == "" or new_value == []:
+                continue
+
+            existing_value = result.get(key, None)
+
+            # If key doesn't exist, just add it
+            if existing_value is None:
+                result[key] = new_value
+                continue
+
+            # Lists: combine and remove duplicates
+            if isinstance(new_value, list):
+                combined = existing_value + new_value
+                result[key] = (
+                    dedupe_dicts(combined)
+                    if isinstance(combined[0], dict)
+                    else list(dict.fromkeys(combined))
+                )
+
+            # Dicts: merge
+            elif isinstance(new_value, dict):
+                result[key] = {**existing_value, **new_value}
+
+            # Everything else: new value overwrites
+            else:
+                result[key] = new_value
+
+        return result
+
+    raise ValueError(f"Unsupported memory data type: {type(existing)}")
+
+
+def merge_step_states(
+    existing: "list[StepState]", new: "list[StepState]"
+) -> "list[StepState]":
+    """Intelligently merge step states by step_index, combining duplicate steps.
+
+    This reducer merges steps with the same step_index, combining their:
+    - rewritten_queries (deduplicated)
+    - retrieved_documents (deduplicated)
+    - summaries (concatenated if different)
+
+    Parameters
+    ----------
+    existing : list[StepState]
+        Existing list of step states.
+    new : list[StepState]
+        New step states to merge.
+
+    Returns
+    -------
+    list[StepState]
+        Merged list of step states.
+
+    Examples
+    --------
+    >>> existing = [{'step_index': 0, 'summary': ''}]
+    >>> new = [{'step_index': 0, 'summary': 'Content here'}]
+    >>> merged = merge_step_states(existing, new)
+    >>> print(merged[0]['summary'])  # 'Content here'
+    """
+    # Create a mapping of step_index to step for efficient lookup
+    step_map: dict[int, StepState] = {}
+
+    # Add existing steps to map
+    for step in existing:
+        step_map[step["step_index"]] = step.copy()
+
+    # Merge new steps
+    for new_step in new:
+        step_idx = new_step["step_index"]
+
+        if step_idx in step_map:
+            # Step exists, merge it
+            existing_step = step_map[step_idx]
+
+            # Merge question (prefer non-empty)
+            if (
+                not existing_step.get("question", "").strip()
+                and new_step.get("question", "").strip()
+            ):
+                existing_step["question"] = new_step["question"]
+
+            # Merge rewritten_queries (deduplicate)
+            existing_queries = existing_step.get("rewritten_queries", [])
+            new_queries = new_step.get("rewritten_queries", [])
+            existing_step["rewritten_queries"] = list(
+                dict.fromkeys(existing_queries + new_queries)
+            )
+
+            # Merge retrieved_documents (deduplicate using append_memory)
+            existing_docs = existing_step.get("retrieved_documents", [])
+            new_docs = new_step.get("retrieved_documents", [])
+            if existing_docs or new_docs:
+                existing_step["retrieved_documents"] = append_memory(  # type: ignore
+                    existing_docs,
+                    new_docs,
+                )
+
+            # Merge summaries
+            existing_summary = existing_step.get("summary", "").strip()
+            new_summary = new_step.get("summary", "").strip()
+
+            if not existing_summary and new_summary:
+                existing_step["summary"] = new_summary
+            elif existing_summary and new_summary and existing_summary != new_summary:
+                # Both have different content - combine
+                existing_step["summary"] = f"{existing_summary}\n\n{new_summary}"
+            elif existing_summary and not new_summary:
+                # Keep existing
+                pass
+
+        else:
+            # New step, add it
+            step_map[step_idx] = new_step.copy()
+
+    # Convert back to sorted list by step_index
+    return sorted(step_map.values(), key=lambda x: x["step_index"])
+
+
+def merge_documents(existing: list[Document], new: list[Document]) -> list[Document]:
+    """Merge and deduplicate Document lists.
+
+    A cleaner wrapper around append_memory specifically for Documents.
+
+    Parameters
+    ----------
+    existing : list[Document]
+        Existing documents.
+    new : list[Document]
+        New documents to merge.
+
+    Returns
+    -------
+    list[Document]
+        Merged and deduplicated documents.
+    """
+    if not existing:
+        return new
+    if not new:
+        return existing
+    return append_memory(existing, new)  # type: ignore
+
+
+def concatenate_strings(existing: str, new: str) -> str:
+    """Concatenate two strings with a separator, handling empty strings.
+
+    Parameters
+    ----------
+    existing : str
+        Existing string.
+    new : str
+        New string to append.
+
+    Returns
+    -------
+    str
+        Concatenated string.
+    """
+    separator: str = "\n\n"
+
+    existing = existing.strip() if existing else ""
+    new = new.strip() if new else ""
+
+    if not existing:
+        return new
+    if not new:
+        return existing
+
+    # Avoid duplicates
+    if existing == new:
+        return existing
+
+    return f"{existing}{separator}{new}"

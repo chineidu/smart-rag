@@ -33,7 +33,7 @@ install:
 
 api-run:
 	@echo "🚀 Starting FastAPI server on http://localhost:8000"
-	uv run fastapi dev src/api/app.py
+	uv run gunicorn --pythonpath . -k uvicorn.workers.UvicornWorker src.api.app:app -w 4 --bind 0.0.0.0:8000
 # 	uv run -m src.api.app
 
 frontend:

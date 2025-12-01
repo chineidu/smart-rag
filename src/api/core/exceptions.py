@@ -71,3 +71,15 @@ class PredictionError(BaseAPIError):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             error_code=ErrorCodeEnum.PREDICTION_ERROR,
         )
+
+
+class CustomTimeoutError(BaseAPIError):
+    """Exception raised when a request times out."""
+
+    def __init__(self, details: str) -> None:
+        message = f"Request timeout: {details}"
+        super().__init__(
+            message,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            error_code=ErrorCodeEnum.TIMEOUT_ERROR,
+        )

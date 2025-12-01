@@ -6,13 +6,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
 from src.api.core.exceptions import (
     BaseAPIError,
+    CustomTimeoutError,
     InvalidInputError,
     PredictionError,
     ResourcesNotFoundError,
@@ -118,6 +119,16 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "path": str(request.url.path),
                 },
             )
+        except CustomTimeoutError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "status": "error",
+                    "error": {"message": exc.message, "code": exc.error_code},
+                    "request_id": getattr(request.state, "request_id", "N/A"),
+                    "path": str(request.url.path),
+                },
+            )
         except BaseAPIError as exc:
             return JSONResponse(
                 status_code=exc.status_code,
@@ -126,6 +137,21 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "error": {
                         "message": "An unexpected error occurred.",
                         "code": exc.error_code,
+                    },
+                    "request_id": getattr(request.state, "request_id", "N/A"),
+                    "path": str(request.url.path),
+                },
+            )
+
+        except Exception as exc:
+            logger.exception(f"Unhandled exception in middleware: {exc}")
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "status": "error",
+                    "error": {
+                        "message": "An unexpected server error occurred.",
+                        "code": ErrorCodeEnum.UNEXPECTED_ERROR,
                     },
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),

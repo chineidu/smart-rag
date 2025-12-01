@@ -8,6 +8,7 @@ from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
+from src.config.settings import app_settings
 from src.schemas.types import SectionNamesType
 from src.utilities.tools.tools import (
     ahybrid_search_tool,
@@ -17,13 +18,13 @@ from src.utilities.tools.tools import (
 )
 
 logger = create_logger(name="retrieval")
-
+LIMIT_VALUE: int = app_settings.LIMIT_VALUE
 router = APIRouter(tags=["retrieval"])
 
 
 @router.get("/retrievals/keyword", status_code=status.HTTP_200_OK)
 @cached(ttl=300, key_prefix="keyword")  # type: ignore
-@limiter.limit("20/minute")
+@limiter.limit(f"{LIMIT_VALUE}/minute")
 async def keyword_search(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     query: str = Query(description="The search query string"),
@@ -32,19 +33,25 @@ async def keyword_search(
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for keyword-based document retrieval"""
-    documents = await akeyword_search_tool(query, filter=None, k=k)
-    documents = await arerank_documents(query, documents, k=3)
-    if not documents:
-        BaseAPIError(
-            message="Keyword search failed",
-        )
+    try:
+        documents = await akeyword_search_tool(query, filter=None, k=k)
+        documents = await arerank_documents(query, documents, k=3)
+        if not documents:
+            BaseAPIError(
+                message="Keyword search failed",
+            )
 
-    return [doc.model_dump() for doc in documents]
+        return [doc.model_dump() for doc in documents]
+
+    except BaseAPIError as e:
+        raise e
+    except Exception as e:
+        raise e
 
 
 @router.get("/retrievals/semantic", status_code=status.HTTP_200_OK)
 @cached(ttl=300, key_prefix="semantic")  # type: ignore
-@limiter.limit("20/minute")
+@limiter.limit(f"{LIMIT_VALUE}/minute")
 async def semantic_search(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     query: str = Query(description="The search query string"),
@@ -56,20 +63,26 @@ async def semantic_search(
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for semantic (vector) document retrieval"""
-    documents = await avector_search_tool(query, filter=filter, k=k)
-    documents = await arerank_documents(query, documents, k=3)
+    try:
+        documents = await avector_search_tool(query, filter=filter, k=k)
+        documents = await arerank_documents(query, documents, k=3)
 
-    if not documents:
-        BaseAPIError(
-            message="Vector search failed",
-        )
+        if not documents:
+            BaseAPIError(
+                message="Vector search failed",
+            )
 
-    return [doc.model_dump() for doc in documents]
+        return [doc.model_dump() for doc in documents]
+
+    except BaseAPIError as e:
+        raise e
+    except Exception as e:
+        raise e
 
 
 @router.get("/retrievals/hybrid", status_code=status.HTTP_200_OK)
 @cached(ttl=300, key_prefix="hybrid")  # type: ignore
-@limiter.limit("20/minute")
+@limiter.limit(f"{LIMIT_VALUE}/minute")
 async def hybrid_search(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     query: str = Query(description="The search query string"),
@@ -81,12 +94,18 @@ async def hybrid_search(
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for hybrid (vector + keywords) document retrieval"""
-    documents = await ahybrid_search_tool(query, filter=filter, k=k)
-    documents = await arerank_documents(query, documents, k=3)
+    try:
+        documents = await ahybrid_search_tool(query, filter=filter, k=k)
+        documents = await arerank_documents(query, documents, k=3)
 
-    if not documents:
-        BaseAPIError(
-            message="Vector search failed",
-        )
+        if not documents:
+            BaseAPIError(
+                message="Vector search failed",
+            )
 
-    return [doc.model_dump() for doc in documents]
+        return [doc.model_dump() for doc in documents]
+
+    except BaseAPIError as e:
+        raise e
+    except Exception as e:
+        raise e

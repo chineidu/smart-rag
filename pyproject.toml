@@ -9,6 +9,7 @@ dependencies = [
     "beautifulsoup4>=4.14.2",
     "ddgs>=9.6.1",
     "fastapi[standard]>=0.120.0",
+    "gunicorn>=23.0.0",
     "httpx>=0.28.1",
     "instructor>=1.11.3",
     "langchain>=1.0.2",
