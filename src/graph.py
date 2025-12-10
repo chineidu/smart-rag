@@ -82,9 +82,13 @@ class GraphManager:
                 self.long_term_memory = None
                 self.long_term_memory_context = None
 
-    async def build_graph(self) -> CompiledStateGraph:
-        """BBuild and compile the state graph. This asynchronous method constructs a
-        StateGraph with predefined nodes and edges.
+    async def build_graph(self, force_rebuild: bool = False) -> CompiledStateGraph:
+        """Build and compile the state graph.
+
+        Parameters
+        ----------
+        force_rebuild : bool, optional
+            Force recompilation of the graph even if a compiled instance already exists.
 
         Returns
         -------
@@ -92,9 +96,13 @@ class GraphManager:
             The compiled state graph ready for execution, equipped with checkpointer
             for persistence across sessions.
         """
-        # Return cached instance if it exists
-        if self.graph_instance is not None:
+        # Return cached instance if it exists and rebuild not requested
+        if self.graph_instance is not None and not force_rebuild:
             return self.graph_instance
+
+        # Drop previous compiled instance if forcing rebuild
+        if force_rebuild:
+            self.graph_instance = None
 
         # Ensure checkpointer is initialized
         if self.checkpointer is None:
@@ -210,7 +218,11 @@ class GraphManager:
         builder.add_conditional_edges(
             "reflect",
             should_continue_condition,  # function to determine next action
-            {NextAction.CONTINUE: "generate_plan", NextAction.FINISH: "final_answer"},
+            {
+                NextAction.CONTINUE: "generate_plan",
+                NextAction.RE_PLAN: "generate_plan",
+                NextAction.FINISH: "final_answer",
+            },
         )
         builder.add_edge("final_answer", "update_lt_memory")
         builder.add_conditional_edges(

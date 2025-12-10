@@ -22,16 +22,25 @@ async def health_check(
     cache: Cache = Depends(get_cache),  # Required by caching decorator  # noqa: ARG001
 ) -> HealthStatusSchema:
     """Route for health checks"""
+    try:
+        response = HealthStatusSchema(
+            name=app_config.api_config.title,
+            status=app_config.api_config.status,
+            version=app_config.api_config.version,
+        ).model_dump(by_alias=True)
 
-    response = HealthStatusSchema(
-        name=app_config.api_config.title,
-        status=app_config.api_config.status,
-        version=app_config.api_config.version,
-    ).model_dump(by_alias=True)
+        if not response:
+            BaseAPIError(
+                message="Health check failed",
+            )
 
-    if not response:
-        BaseAPIError(
-            message="Health check failed",
-        )
+        return response
 
-    return response
+    except BaseAPIError as e:
+        logger.error(f"Health check error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during health check: {e}")
+        raise BaseAPIError(
+            message="An unexpected error occurred during health check",
+        ) from e

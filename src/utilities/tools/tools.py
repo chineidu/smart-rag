@@ -219,7 +219,7 @@ async def aduckduckgo_web_search_tool(
         Document(
             page_content=f"Title: {result['title']}\nContent: {result['raw_content']}",
             metadata={
-                "url": result["url"],
+                "source": result["url"],
                 "title": result["title"],
             },
         )
@@ -257,7 +257,7 @@ async def atavily_web_search_tool(
         Document(
             page_content=f"Title: {result['title']}\nContent: {result['raw_content']}",
             metadata={
-                "url": result["url"],
+                "source": result["url"],
                 "title": result["title"],
             },
         )

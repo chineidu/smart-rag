@@ -168,7 +168,8 @@ def rerank_documents(
         reranker = _reranker_setup.get_model()
     if reranker is None:
         raise RuntimeError(
-            "Reranker model not initialized. Call set_reranker_setup(CrossEncoderSetup) during app startup "
+            "Reranker model not initialized. Call set_reranker_setup(CrossEncoderSetup) during "
+            "app startup "
             "and ensure it is ready before using rerank_documents."
         )
 
@@ -289,9 +290,11 @@ async def afetch_raw_content(url: str) -> str | None:
     """
     # Browser-like headers to avoid bot detection
     headers: dict[str, str] = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"
+        "*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",

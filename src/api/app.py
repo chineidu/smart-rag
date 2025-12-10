@@ -13,7 +13,7 @@ from src.api.core.middleware import (
     LoggingMiddleware,
     RequestIDMiddleware,
 )
-from src.api.routes import health, retrievals
+from src.api.routes import health, rag, retrievals
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
@@ -57,6 +57,7 @@ def create_application() -> FastAPI:
 
     # Include routers
     app.include_router(health.router, prefix=prefix)
+    app.include_router(rag.router, prefix=prefix)
     app.include_router(retrievals.router, prefix=prefix)
     # app.include_router(prediction.router, prefix=prefix)
     # app.include_router(status.router, prefix=prefix)

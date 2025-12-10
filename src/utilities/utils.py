@@ -1,10 +1,11 @@
+import asyncio
 import json
 import re
 import unicodedata
 from glob import glob
 from pathlib import Path
 from re import Match, Pattern
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, cast
 from uuid import uuid4
 
 from bs4 import BeautifulSoup
@@ -21,13 +22,38 @@ from langsmith import traceable
 from markdownify import markdownify as md
 from pydantic import BaseModel
 
+from src import create_logger
+from src.prompts import PromptsBuilder
 from src.schemas.base import ModelList
-from src.schemas.types import FileFormatsType, MemoryData, T
+from src.schemas.nodes_schema import (
+    Decision,
+    Plan,
+    RetrieverMethod,
+    ReWrittenQuery,
+    Step,
+)
+from src.schemas.types import (
+    FileFormatsType,
+    MemoryData,
+    RetrieverMethodType,
+    T,
+)
 from src.utilities.client import HTTPXClient, get_instructor_openrouter_client
 from src.utilities.model_config import RemoteModel
+from src.utilities.tools.tools import (
+    ahybrid_search_tool,
+    akeyword_search_tool,
+    arerank_documents,
+    avector_search_tool,
+)
+
+logger = create_logger("utilities")
+
 
 if TYPE_CHECKING:
-    from src.state import StepState
+    from src.state import State, StepState
+
+prompt_builder = PromptsBuilder()
 
 
 def merge_dicts(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +91,8 @@ async def get_structured_output(
     -----
     This is an asynchronous function that awaits the completion of the API call.
     """
+    model = model if model else RemoteModel.GEMINI_2_5_FLASH_LITE
+
     aclient = await get_instructor_openrouter_client()
     return await aclient.chat.completions.create(
         model=model,
@@ -511,7 +539,7 @@ def chunk_data_by_sections(
     Returns
     -------
     list[Document]
-        List of Document chunks with metadata including source_doc, section, and chunk_id.
+        List of Document chunks with metadata including source, section, and chunk_id.
     """
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,  # chunk size (characters)
@@ -532,7 +560,7 @@ def chunk_data_by_sections(
                 Document(
                     page_content=chunk,
                     metadata={
-                        "source_doc": source,  # original document path
+                        "source": source,  # original document path
                         # Ensure section titles are normalized in metadata
                         "section": normalize_header_string(title),
                         "chunk_id": chunk_id,  # unique chunk ID
@@ -697,7 +725,8 @@ def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
     # Type checking
     if type(existing) is not type(new):
         raise ValueError(
-            f"Existing and new memory data must be of the same type. Got {type(existing)} and {type(new)}"
+            f"Existing and new memory data must be of the same type. "
+            f"Got {type(existing)} and {type(new)}"
         )
 
     if isinstance(existing, list) and isinstance(new, list):
@@ -774,6 +803,8 @@ def merge_step_states(
     - retrieved_documents (deduplicated)
     - summaries (concatenated if different)
 
+    Special behavior: If new contains a single None value, returns empty list (reset).
+
     Parameters
     ----------
     existing : list[StepState]
@@ -793,6 +824,11 @@ def merge_step_states(
     >>> merged = merge_step_states(existing, new)
     >>> print(merged[0]['summary'])  # 'Content here'
     """
+    # Reset detection: if new list contains None, clear state
+    # e.g., existing = [...], new = [None] -> return []
+    if new and len(new) == 1 and new[0] is None:  # type: ignore
+        return []
+
     # Create a mapping of step_index to step for efficient lookup
     step_map: dict[int, StepState] = {}
 
@@ -857,6 +893,8 @@ def merge_documents(existing: list[Document], new: list[Document]) -> list[Docum
 
     A cleaner wrapper around append_memory specifically for Documents.
 
+    Special behavior: If new contains a single None value, returns empty list (reset).
+
     Parameters
     ----------
     existing : list[Document]
@@ -869,6 +907,10 @@ def merge_documents(existing: list[Document], new: list[Document]) -> list[Docum
     list[Document]
         Merged and deduplicated documents.
     """
+    # Reset detection: if new list contains None, clear documents
+    if new and len(new) == 1 and new[0] is None:  # type: ignore
+        return []
+
     if not existing:
         return new
     if not new:
@@ -906,3 +948,214 @@ def concatenate_strings(existing: str, new: str) -> str:
         return existing
 
     return f"{existing}{separator}{new}"
+
+
+# =========================================================
+# ============== HELPER FUNCTIONS FOR NODES ===============
+# =========================================================
+def deduplicate(documents: list[Document]) -> list[Document]:
+    """Deduplicate documents based on 'chunk_id' in metadata."""
+    docs_dict: dict[str, Document] = {}
+
+    if not documents[0].metadata:
+        raise ValueError(
+            "Cannot deduplicate documents without 'chunk_id' in metadata. Please ensure "
+            "documents have 'chunk_id' in their metadata."
+        )
+    for doc in documents:
+        if (_id := doc.metadata["chunk_id"]) not in docs_dict:
+            docs_dict[_id] = doc
+    return list(docs_dict.values())
+
+
+def format_documents(documents: list[Document]) -> str:
+    """Format documents for synthesis input."""
+    delimiter: str = "===" * 20
+    try:
+        docs: list[str] = [
+            f"[Source]: {doc.metadata['source']}\n[Content]: {doc.page_content}\n{delimiter}"
+            for doc in documents
+        ]
+    except KeyError:
+        docs = [
+            f"[Source]: {doc.metadata['url']}\n[Content]: {doc.page_content}\n{delimiter}"
+            for doc in documents
+        ]
+    formated_docs: str = "\n\n".join(docs)
+
+    return formated_docs
+
+
+type RetrieverFn = Callable[[str, str | None, int], Coroutine[Any, Any, list[Document]]]
+retrieval_method_dicts: dict[str, RetrieverFn] = {
+    RetrieverMethodType.VECTOR_SEARCH: avector_search_tool,
+    RetrieverMethodType.KEYWORD_SEARCH: akeyword_search_tool,
+    RetrieverMethodType.HYBRID_SEARCH: ahybrid_search_tool,
+}
+
+
+async def aretrieve_internal_documents(
+    method: RetrieverMethodType | str,
+    rewritten_queries: list[str],
+    target_section: str | None,
+    k: int,
+) -> list[Document]:
+    """Retrieve internal documents using the specified retrieval method.
+
+    Parameters
+    ----------
+    method : RetrieverMethodType | str
+        Retrieval method to use (`vector_search`, `keyword_search`, or `hybrid_search`).
+    rewritten_queries : list[str]
+        Query variations produced by the query rewriter for this step.
+    target_section : str | None
+        Target section filter for internal document search. Only applied when
+        method is `vector_search` or `hybrid_search`; ignored for pure keyword search.
+    k : int
+        Number of top documents to retrieve per query before deduplication.
+
+    Returns
+    -------
+    list[Document]
+        List of unique retrieved documents across all query variations.
+
+    Raises
+    ------
+    ValueError
+        If the provided method is not supported.
+    """
+
+    method = (
+        method
+        if isinstance(method, RetrieverMethodType)
+        else RetrieverMethodType(method)
+    )
+    retrieval_fn = retrieval_method_dicts.get(method)
+    if retrieval_fn is None:
+        raise ValueError(f"Unsupported retrieval method: {method}")
+
+    tasks: list[Coroutine[Any, Any, list[Document]]] = [
+        # Expected signature. Order: query, target_section, k is important!
+        retrieval_fn(
+            query,
+            target_section,
+            k,
+        )
+        for query in rewritten_queries
+    ]
+    all_docs: list[list[Document]] = await asyncio.gather(*tasks)
+    # Flatten the docs
+    retrieved_docs: list[Document] = [doc for sublist in all_docs for doc in sublist]  # type: ignore
+
+    return deduplicate(documents=retrieved_docs)
+
+
+async def query_rewriter(question: str, search_keywords: list[str]) -> ReWrittenQuery:
+    """Re-write the user's question into multiple query variations."""
+    prompt = prompt_builder.query_rewriter_prompt(
+        question=question, search_keywords=", ".join(search_keywords)
+    )
+    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
+    response = await get_structured_output(
+        messages=messages, model=None, schema=ReWrittenQuery
+    )
+    return cast(ReWrittenQuery, response)
+
+
+async def determine_retrieval_type(question: str) -> RetrieverMethod:
+    """Determine the optimal retrieval method for the given question."""
+    prompt = prompt_builder.retriever_type_prompt(question=question)
+    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
+    response = await get_structured_output(
+        messages=messages, model=None, schema=RetrieverMethod
+    )
+    return cast(RetrieverMethod, response)
+
+
+def convert_context_to_str(step_state: list["StepState"]) -> str:
+    """This function converts the list of StepState dictionaries into a single string.
+
+    Parameters
+    ----------
+    step_state : list[StepState]
+        The list of StepState dictionaries representing the research history.
+
+    Returns
+    -------
+    str
+        A single string representation of the research history.
+    """
+    return "\n\n".join(
+        [
+            f"Step {s['step_index']}: {s['question']}\nSummary: {s['summary']}"
+            for s in step_state
+        ]
+    )
+
+
+def format_plan(plan: Plan | None) -> str:
+    """Format the plan into a string representation.
+
+    Parameters
+    ----------
+    plan : Plan
+        The multi-step plan to be formatted.
+
+    Returns
+    -------
+    str
+        A string representation of the plan.
+    """
+    if plan is None:
+        return ""
+    return json.dumps([step.model_dump() for step in plan.steps])
+
+
+async def get_decision(question: str, plan: Plan | None, history: str) -> Decision:
+    """This node is used to determine whether to continue with the plan or finish.
+
+    Parameters
+    ----------
+    question : str
+        The original user question.
+    plan : Plan
+        The multi-step plan object.
+    history : str
+        The history of completed steps.
+
+    Returns
+    -------
+    Decision
+        The decision object containing the next action and rationale.
+    """
+    sys_msg = prompt_builder.decision_prompt(
+        question=question, plan=format_plan(plan=plan)
+    )
+    history_query: str = f"<COMPLETED_STEPS>{history}</COMPLETED_STEPS>"
+
+    messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
+        messages=[SystemMessage(sys_msg), HumanMessage(history_query)]
+    )
+    response = await get_structured_output(
+        messages=messages, model=None, schema=Decision
+    )
+    return cast(Decision, response)
+
+
+async def rerank_retrieved_documents(state: "State") -> dict[str, Any]:
+    """Rerank documents by relevance to query."""
+    k: int = 3
+    question: str = state["original_question"]
+    retrieved_documents: list[Document] = state["retrieved_documents"]
+    # Get the details of the current step
+    current_step_idx: int = state["current_step_index"]
+    current_step: Step = state["plan"].steps[current_step_idx]
+    logger.info(
+        f"Retrieving documents for reranking for Step {current_step_idx}: {current_step.question}"
+    )
+
+    reranked_docs: list[Document] = await arerank_documents(
+        query=question, documents=retrieved_documents, k=k
+    )
+
+    return {"reranked_documents": reranked_docs}

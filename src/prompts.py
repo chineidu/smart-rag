@@ -67,13 +67,13 @@ _query_rewriter_prompt: str = """
     - Extract core intent, remove ambiguity
     - Use specific, domain-relevant terms
     - Retain critical details (names, dates, figures)
-    - Output 3-7 keywords/phrases
+    - Output 2-5 keywords/phrases
 </GUIDELINES>
 
 <QUERY>{question}</QUERY>
 <KEYWORDS>{search_keywords}</KEYWORDS>
 
-<OUTPUT>Return 3-7 query variations capturing original intent.</OUTPUT>
+<OUTPUT>Return 2-5 query variations capturing original intent.</OUTPUT>
 """
 
 _decision_prompt: str = """
@@ -83,21 +83,31 @@ _decision_prompt: str = """
     </ROLE>
 
     <TASK>
-        Analyze completed research against the original question to decide whether
-        to continue execution or finalize the answer.
+        Analyze completed research against the original question to decide whether to:
+        1. FINISH - Answer is complete with sufficient evidence
+        2. RE_PLAN - All steps done but research incomplete, need NEW refined plan
+        3. CONTINUE - Remaining plan steps will address gaps
     </TASK>
 
     <DECISION_CRITERIA>
         <FINISH_IF>
             - All critical aspects of the original question are COMPLETELY addressed
-            - Sufficient evidence and data have been collected
-            - Remaining plan steps would add minimal value
+            - Sufficient evidence and data have been collected to answer the question
+            - The completed research steps directly satisfy the question requirements
         </FINISH_IF>
 
+        <RE_PLAN_IF>
+            - ALL steps in the current plan have been executed
+            - The research is incomplete or gaps remain in answering the question
+            - A NEW refined plan with different angles/tools is needed
+            - The completed steps revealed new requirements or better search strategies
+        </RE_PLAN_IF>
+
         <CONTINUE_IF>
-            - Key parts of the question remain unanswered
-            - Critical dependencies in the plan are not yet satisfied
-            - Collected information has gaps or lacks specificity
+            - Key parts of the question remain unanswered OR incomplete
+            - The current plan has remaining steps that will address the gaps
+            - The research is on track but incomplete
+            - Don't use CONTINUE if all plan steps are already executed (use RE_PLAN instead)
         </CONTINUE_IF>
     </DECISION_CRITERIA>
 
@@ -105,18 +115,24 @@ _decision_prompt: str = """
         1. Review the original question's requirements
         2. Assess what information has been gathered in completed steps
         3. Identify gaps between collected findings and question needs
-        4. Consider whether remaining plan steps address those gaps
+        4. Check if all plan steps are completed:
+           - ALL steps done + research incomplete → RE_PLAN
+           - ALL steps done + research complete → FINISH
+           - Some steps remain → CONTINUE (to execute remaining steps)
     </EVALUATION_PROCESS>
 
     <GUIDELINES>
+        - **Only use RE_PLAN when ALL current plan steps are executed but research is incomplete**
+        - **Use CONTINUE only if there are remaining unexecuted steps in the current plan**
         - Prioritize answer completeness over plan completion
-        - A partial plan execution can be sufficient if the question is answered
-        - Don't continue simply to complete all steps if information is adequate
+        - A partial plan execution can be sufficient ONLY if the question IS answered
+        - Don't finish early if critical information is still missing
+        - If research went off-track, use CONTINUE for remaining steps OR RE_PLAN if all done
     </GUIDELINES>
 
     <OUTPUT_FORMAT>
         Respond with:
-        - Decision: [FINISH | CONTINUE]
+        - Decision: [FINISH | CONTINUE | RE_PLAN]
         - Rationale: Brief explanation (1-2 sentences) of why this decision is optimal
     </OUTPUT_FORMAT>
 
@@ -168,7 +184,8 @@ _final_answer_prompt: str = """
 
         <CITATIONS>
             - Cite every sentence with specific facts/data/claims
-            - [Source: [<TITLE>](<URL>)]
+            - [Source: [<TITLE>](<URL>)|<FILE_NAME> | Section: <SECTION>] format
+            - Use multiple citations per sentence if needed
             - Don't cite general knowledge or transitions
             - Citations MUST be SECTION TITLES or URLs only
         </CITATIONS>

@@ -25,11 +25,13 @@ class VectorStoreConfig(BaseSchema):
     )
     filepaths_is_glob: bool = Field(
         default=False,
-        description="If True, treat `filepaths` as a glob pattern to match multiple files, by default False",
+        description="If True, treat `filepaths` as a glob pattern to match multiple "
+        "files, by default False",
     )
     force_recreate: bool = Field(
         default=False,
-        description="If True, delete and recreate existing collection to match embedding dimension.",
+        description="If True, delete and recreate existing collection to match "
+        "embedding dimension.",
     )
 
 
@@ -56,6 +58,9 @@ class CustomConfig(BaseSchema):
     )
     max_messages: int = Field(
         20, description="Maximum number of messages to keep in conversation history."
+    )
+    recursion_limit: int = Field(
+        50, description="Maximum recursion depth for multi-step plans."
     )
 
 

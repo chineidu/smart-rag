@@ -9,7 +9,8 @@ class Step(BaseModel):
     question: str = Field(description="The question to be answered by the step.")
     rationale: str = Field(description="The brief reasoning behind the question.")
     tool: ToolsType = Field(
-        description="The tool to use for this step. For information found ONLY in internal documents, "
+        description="The tool to use for this step. For information found ONLY in "
+        "internal documents, "
         "use 'vector_store'. For the latest information found on the web, use 'web_search'.",
     )
     search_keywords: list[str] = Field(
@@ -74,7 +75,8 @@ class StructuredMemoryResponse(BaseModel):
     )
     constraints: list[str] = Field(
         default_factory=list,
-        description="Standing limitations or constraints. (e.g., avoid using things specified by the user)",
+        description="Standing limitations or constraints. (e.g., avoid using "
+        "things specified by the user)",
     )
     interests: list[str] = Field(
         default_factory=list,

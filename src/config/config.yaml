@@ -17,7 +17,8 @@ config:
     rerank_k: 3
     max_chars: null
     max_attempts: 3
-    max_messages: 20
+    max_messages: 20 # Max messages in the conversation history
+    recursion_limit: 50 # Max recursion depth for multi-step plans
 
   llm_model_config:
     creative_model:

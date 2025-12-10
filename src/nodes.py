@@ -1,6 +1,5 @@
 import asyncio
-import json
-from typing import Any, Callable, Coroutine, cast
+from typing import Any, Coroutine, cast
 
 from langchain.messages import RemoveMessage
 from langchain_core.documents.base import Document
@@ -18,9 +17,7 @@ from src import create_logger
 from src.config import app_config
 from src.prompts import PromptsBuilder
 from src.schemas.nodes_schema import (
-    Decision,
     Plan,
-    RetrieverMethod,
     ReWrittenQuery,
     Step,
     StructuredMemoryResponse,
@@ -29,24 +26,27 @@ from src.schemas.nodes_schema import (
 from src.schemas.types import (
     MemoryKeys,
     NextAction,
-    RetrieverMethodType,
     SectionNamesType,
     SummarizationConditionType,
     ToolsType,
 )
-from src.state import State, StepState
+from src.state import State
 from src.utilities.llm_utils import remote_llm
 from src.utilities.tools.tools import (
-    ahybrid_search_tool,
-    akeyword_search_tool,
     arerank_documents,
     atavily_web_search_tool,
-    avector_search_tool,
 )
 from src.utilities.utils import (
     append_memory,
+    aretrieve_internal_documents,
+    convert_context_to_str,
     convert_langchain_messages_to_dicts,
+    determine_retrieval_type,
+    format_documents,
+    format_plan,
+    get_decision,
     get_structured_output,
+    query_rewriter,
 )
 
 logger = create_logger("nodes")
@@ -59,216 +59,9 @@ MAX_MESSAGES: int = app_config.custom_config.max_messages
 MAX_CHARS: int | None = app_config.custom_config.max_chars
 MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
 
-type RetrieverFn = Callable[[str, str | None, int], Coroutine[Any, Any, list[Document]]]
-retrieval_method_dicts: dict[str, RetrieverFn] = {
-    RetrieverMethodType.VECTOR_SEARCH: avector_search_tool,
-    RetrieverMethodType.KEYWORD_SEARCH: akeyword_search_tool,
-    RetrieverMethodType.HYBRID_SEARCH: ahybrid_search_tool,
-}
+
 prompt_builder = PromptsBuilder()
-section_titles: list[str] = [section.value for section in SectionNamesType]
-
-
-# =========================================================
-# ============== HELPER FUNCTIONS FOR NODES ===============
-# =========================================================
-def deduplicate(documents: list[Document]) -> list[Document]:
-    """Deduplicate documents based on 'chunk_id' in metadata."""
-    docs_dict: dict[str, Document] = {}
-
-    if not documents[0].metadata:
-        raise ValueError(
-            "Cannot deduplicate documents without 'chunk_id' in metadata. Please ensure documents have "
-            "'chunk_id' in their metadata."
-        )
-    for doc in documents:
-        if (_id := doc.metadata["chunk_id"]) not in docs_dict:
-            docs_dict[_id] = doc
-    return list(docs_dict.values())
-
-
-def format_documents(documents: list[Document]) -> str:
-    """Format documents for synthesis input."""
-    delimiter: str = "===" * 20
-    try:
-        docs: list[str] = [
-            f"[Source]: {doc.metadata['source_doc']}\n[Content]: {doc.page_content}\n{delimiter}"
-            for doc in documents
-        ]
-    except KeyError:
-        docs = [
-            f"[Source]: {doc.metadata['url']}\n[Content]: {doc.page_content}\n{delimiter}"
-            for doc in documents
-        ]
-    formated_docs: str = "\n\n".join(docs)
-
-    return formated_docs
-
-
-async def aretrieve_internal_documents(
-    method: RetrieverMethodType | str,
-    rewritten_queries: list[str],
-    target_section: str | None,
-    k: int,
-) -> list[Document]:
-    """Retrieve internal documents using the specified retrieval method.
-
-    Parameters
-    ----------
-    method : RetrieverMethodType | str
-        Retrieval method to use (`vector_search`, `keyword_search`, or `hybrid_search`).
-    rewritten_queries : list[str]
-        Query variations produced by the query rewriter for this step.
-    target_section : str | None
-        Target section filter for internal document search. Only applied when
-        method is `vector_search` or `hybrid_search`; ignored for pure keyword search.
-    k : int
-        Number of top documents to retrieve per query before deduplication.
-
-    Returns
-    -------
-    list[Document]
-        List of unique retrieved documents across all query variations.
-
-    Raises
-    ------
-    ValueError
-        If the provided method is not supported.
-    """
-    method = (
-        method
-        if isinstance(method, RetrieverMethodType)
-        else RetrieverMethodType(method)
-    )
-    retrieval_fn = retrieval_method_dicts.get(method)
-    if retrieval_fn is None:
-        raise ValueError(f"Unsupported retrieval method: {method}")
-
-    tasks: list[Coroutine[Any, Any, list[Document]]] = [
-        # Expected signature. Order: query, target_section, k is important!
-        retrieval_fn(
-            query,
-            target_section,
-            k,
-        )
-        for query in rewritten_queries
-    ]
-    all_docs: list[list[Document]] = await asyncio.gather(*tasks)
-    # Flatten the docs
-    retrieved_docs: list[Document] = [doc for sublist in all_docs for doc in sublist]  # type: ignore
-
-    return deduplicate(documents=retrieved_docs)
-
-
-async def query_rewriter(question: str, search_keywords: list[str]) -> ReWrittenQuery:
-    """Re-write the user's question into multiple query variations."""
-    prompt = prompt_builder.query_rewriter_prompt(
-        question=question, search_keywords=", ".join(search_keywords)
-    )
-    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
-    response = await get_structured_output(
-        messages=messages, model=None, schema=ReWrittenQuery
-    )
-    return cast(ReWrittenQuery, response)
-
-
-async def determine_retrieval_type(question: str) -> RetrieverMethod:
-    """Determine the optimal retrieval method for the given question."""
-    prompt = prompt_builder.retriever_type_prompt(question=question)
-    messages = convert_langchain_messages_to_dicts(messages=[HumanMessage(prompt)])
-    response = await get_structured_output(
-        messages=messages, model=None, schema=RetrieverMethod
-    )
-    return cast(RetrieverMethod, response)
-
-
-def convert_context_to_str(state_state: list[StepState]) -> str:
-    """This function converts the list of StepState dictionaries into a single string.
-
-    Parameters
-    ----------
-    state_state : list[StepState]
-        The list of StepState dictionaries representing the research history.
-
-    Returns
-    -------
-    str
-        A single string representation of the research history.
-    """
-    return "\n\n".join(
-        [
-            f"Step {s['step_index']}: {s['question']}\nSummary: {s['summary']}"
-            for s in state_state
-        ]
-    )
-
-
-def format_plan(plan: Plan | None) -> str:
-    """Format the plan into a string representation.
-
-    Parameters
-    ----------
-    plan : Plan
-        The multi-step plan to be formatted.
-
-    Returns
-    -------
-    str
-        A string representation of the plan.
-    """
-    if plan is None:
-        return ""
-    return json.dumps([step.model_dump() for step in plan.steps])
-
-
-async def get_decision(question: str, plan: Plan | None, history: str) -> Decision:
-    """This node is used to determine whether to continue with the plan or finish.
-
-    Parameters
-    ----------
-    question : str
-        The original user question.
-    plan : Plan
-        The multi-step plan object.
-    history : str
-        The history of completed steps.
-
-    Returns
-    -------
-    Decision
-        The decision object containing the next action and rationale.
-    """
-    sys_msg = prompt_builder.decision_prompt(
-        question=question, plan=format_plan(plan=plan)
-    )
-    history_query: str = f"<COMPLETED_STEPS>{history}</COMPLETED_STEPS>"
-
-    messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
-        messages=[SystemMessage(sys_msg), HumanMessage(history_query)]
-    )
-    response = await get_structured_output(
-        messages=messages, model=None, schema=Decision
-    )
-    return cast(Decision, response)
-
-
-async def rerank_retrieved_documents(state: State) -> dict[str, Any]:
-    """Rerank documents by relevance to query."""
-    k: int = 3
-    question: str = state["original_question"]
-    retrieved_documents: list[Document] = state["retrieved_documents"]
-    # Get the details of the current step
-    current_step_idx: int = state["current_step_index"]
-    current_step: Step = state["plan"].steps[current_step_idx]
-    logger.info(
-        f"Retrieving documents for reranking for Step {current_step_idx}: {current_step.question}"
-    )
-
-    reranked_docs: list[Document] = await arerank_documents(
-        query=question, documents=retrieved_documents, k=k
-    )
-
-    return {"reranked_documents": reranked_docs}
+section_titles: list[str] = [s.value for s in SectionNamesType]
 
 
 # =========================================================
@@ -300,10 +93,10 @@ async def validate_query_node(state: State) -> dict[str, Any]:
         messages=messages, model=None, schema=ValidateQuery
     )
     response = cast(ValidateQuery, response)
-    logger.info(
-        f"🚨 Related to topic?: {response.is_related_to_context} | "
-        f"Next Action: {response.next_action} | Rationale: {response.rationale}"
-    )
+    # logger.info(
+    #     f"🚨 Related to topic?: {response.is_related_to_context} | "
+    #     f"Next Action: {response.next_action} | Rationale: {response.rationale}"
+    # )
 
     step_state: dict[str, Any] = {
         "step_index": -1,
@@ -342,12 +135,37 @@ async def generate_plan_node(
     dict[str, Any]
         Updated state with the generated plan.
     """
-    # If plan already exists, return empty update (no overwrite)
-    if state.get("plan"):
+    # If plan already exists AND we're not re-planning, return empty update (no overwrite)
+    # Re-planning is detected when all steps are completed (current_step_index >= num_steps)
+    current_plan = state.get("plan")
+    current_step_idx = state.get("current_step_index", 0)
+
+    is_replanning: bool = bool(
+        current_plan and (current_step_idx >= len(current_plan.steps))
+    )
+
+    if current_plan and not is_replanning:
+        logger.info("Plan already exists. Skipping plan generation.")
         return {}
+
+    # Build context for re-planning
+    replan_context: str = ""
+    if is_replanning:
+        logger.info("🔄 Re-planning: Previous plan completed but research incomplete.")
+        history: str = convert_context_to_str(state["step_state"])
+        replan_context = f"""
+        <PREVIOUS_RESEARCH_SUMMARY>
+            The initial plan was completed but research is incomplete. Here's what was already
+            investigated:
+            <HISTORY>{history}</HISTORY>
+            Generate a NEW refined plan with different approaches or angles to address remaining
+            gaps.
+        </PREVIOUS_RESEARCH_SUMMARY>
+        """
+
     summary: str = state.get("conversation_summary", "")
     user_question: str = state.get("original_question", "")
-    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
+    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>{replan_context}"
 
     # ============== Process Long-term Memory ================
     user_id: str = config["configurable"]["user_id"]
@@ -364,9 +182,6 @@ async def generate_plan_node(
     else:
         user_preferences_content = "No memory found."
 
-    user_question: str = state["original_question"]
-    user_query: str = f"<USER_QUESTION>{user_question}</USER_QUESTION>"
-
     sys_msg = prompt_builder.planner_prompt(
         section_titles=" | ".join(section_titles),
         summary=summary,
@@ -378,17 +193,20 @@ async def generate_plan_node(
     )
     response = await get_structured_output(messages=messages, model=None, schema=Plan)
     plan_formatted: str = f"Multi-steps Plan:\n{format_plan(plan=response)}"
-    logger.info(f"Number of steps: {len(response.steps)}...")
+    log_msg: str = f"Number of steps: {len(response.steps)}..."
+    if is_replanning:
+        log_msg = f"🔄 RE-PLAN Generated. {log_msg}"
+    logger.info(log_msg)
 
     return {
         "is_related_to_context": True,
         "plan": response,
-        "step_state": [],
+        "step_state": [None],  # Reset signal - clear when starting new plan
         "current_step_index": 0,
         "messages": [user_question, plan_formatted],
-        "retrieved_documents": state.get("retrieved_documents", []),
-        "reranked_documents": state.get("reranked_documents", []),
-        "synthesized_context": state.get("synthesized_context", ""),
+        "retrieved_documents": [None],  # Reset signal - clear previous retrieval
+        "reranked_documents": [None],  # Reset signal - clear previous reranking
+        "synthesized_context": "",  # Clear previous synthesis
         "conversation_summary": state.get("conversation_summary", ""),
     }
 
@@ -401,7 +219,8 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
     logger.info(
-        f"🛢 Using Vector DB\nRetrieving documents for Step {current_step_idx}: {current_step.question}"
+        f"🛢 Using Vector DB\nRetrieving documents for Step "
+        f"{current_step_idx}: {current_step.question}"
     )
 
     # Re-write the query and determine retrieval method concurrently
@@ -414,10 +233,11 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
     )
 
     rewritten_queries: list[str] = re_written_query_obj.rewritten_query
-    logger.info(f"Re-written queries: {rewritten_queries}")
-    logger.info(
-        f"Selected retrieval method: {retriever_method.method};\nRationale: {retriever_method.rationale}"
-    )
+    # logger.info(f"Re-written queries: {rewritten_queries}")
+    # logger.info(
+    #     f"Selected retrieval method: {retriever_method.method};"
+    #     f"\nRationale: {retriever_method.rationale}"
+    # )
 
     # Retrieve documents based on the selected method
     retrieved_docs: list[Document] = await aretrieve_internal_documents(
@@ -437,8 +257,9 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
         "summary": "",
     }
     # Update the state with retrieved docs and step_state
+    # Append to existing step_state to accumulate history
     return {
-        "step_state": [step_state],
+        "step_state": state.get("step_state", []) + [step_state],
         "retrieved_documents": retrieved_docs,
         "reranked_documents": reranked_docs,
     }
@@ -471,7 +292,7 @@ async def internet_search_node(state: State) -> dict[str, Any]:
         search_keywords=current_step.search_keywords,
     )
     rewritten_queries: list[str] = re_written_query_obj.rewritten_queries
-    logger.info(f"🌐 WEB SEARCH\nRe-written queries: {rewritten_queries}")
+    # logger.info(f"🌐 WEB SEARCH\nRe-written queries: {rewritten_queries}")
 
     tasks: list[Coroutine[Any, Any, list[Document]]] = [
         atavily_web_search_tool(
@@ -498,8 +319,9 @@ async def internet_search_node(state: State) -> dict[str, Any]:
     }
 
     # Update the state with retrieved docs and step_state
+    # Append to existing step_state to accumulate history
     return {
-        "step_state": [step_state],
+        "step_state": state.get("step_state", []) + [step_state],
         "retrieved_documents": retrieved_docs,
         "reranked_documents": reranked_docs,
     }
@@ -510,7 +332,6 @@ async def compress_documents_node(state: State) -> dict[str, Any]:
     """Compress reranked documents for each step."""
 
     reranked_documents: list[Document] = state["reranked_documents"]
-    print(f"Reranked Documents (Here): {reranked_documents}")  # Debug line
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
@@ -533,8 +354,6 @@ async def reflection_node(state: State) -> dict[str, Any]:
     """This node is responsible for moving to the next step in the multi-step plan."""
 
     synthesized_context: str = state["synthesized_context"]
-    reranked_documents: list[Document] = state["reranked_documents"]
-    print(f"Reranked Documents: {reranked_documents}")  # Debug line
     # Get the details of the current step
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
@@ -545,7 +364,8 @@ async def reflection_node(state: State) -> dict[str, Any]:
         "summary": synthesized_context,
     }
     logger.info(
-        f"⚠️ Number of steps completed: {current_step_idx + 1} | Num iterations: {state.get('num_iterations', 0) + 1}"
+        f"⚠️ Number of steps completed: {current_step_idx + 1} | Num iterations: "
+        f"{state.get('num_iterations', 0) + 1}"
     )
 
     return {
@@ -566,11 +386,19 @@ async def final_answer_node(state: State) -> dict[str, Any]:
     logger.info("--- ✅: Generating Final Answer with Citations ---")
     # Gather all the evidence we've collected from ALL steps.
     final_context: str = ""
-    for i, step in enumerate(state["step_state"]):
-        final_context += f"\n--- Findings from Research Step {i + 1} ---\n"
-        # Include the source metadata (section or URL) for each document to enable citations.
-        for doc in step["retrieved_documents"]:  # type: ignore
-            source: str = doc.metadata.get("source_doc") or doc.metadata.get("url")  # type: ignore
+    for step in state["step_state"]:
+        # Skip the validation step (step_index == -1)
+        if step.get("step_index") == -1:
+            continue
+        final_context += (
+            f"\n--- Findings from Research Step {step['step_index'] + 1} ---\n"
+        )
+        # Use reranked_documents which exists in step_state
+        for doc in step.get("reranked_documents", []):  # type: ignore
+            source: str = (  # type: ignore
+                f"Filename: {doc.metadata.get('source')} | Section: {doc.metadata.get('section')}"
+                or doc.metadata.get("url")
+            )
             final_context += f"Source: {source}\nContent: {doc.page_content}\n\n"
 
     prompt: str = prompt_builder.final_answer_prompt(
@@ -581,10 +409,17 @@ async def final_answer_node(state: State) -> dict[str, Any]:
     final_answer = await remote_llm.ainvoke(
         [SystemMessage(prompt), HumanMessage(context)]
     )
-    # Update the state with the final answer and reset num_iterations
+    # Update the state with the final answer and reset ALL accumulating state
+    # Use None sentinel to trigger reset in custom reducers
     return {
         "final_answer": final_answer.content,
-        "num_iterations": 0,  # Reset counter for next question
+        "plan": None,  # Clear plan
+        "step_state": [None],  # Reset signal for merge_step_states reducer
+        "retrieved_documents": [None],  # Reset signal for merge_documents reducer
+        "reranked_documents": [None],  # Reset signal for merge_documents reducer
+        "synthesized_context": "",  # Clear synthesis
+        "current_step_index": -1,  # Reset step counter
+        "num_iterations": 0,  # Reset iteration counter
     }
 
 
@@ -610,7 +445,12 @@ def unrelated_query_node(state: State) -> dict[str, Any]:  # noqa: ARG001
     return {
         "plan": None,
         "final_answer": default_response,
-        "num_iterations": 0,  # Reset counter for next question
+        "step_state": [None],  # Reset signal for merge_step_states reducer
+        "retrieved_documents": [None],  # Reset signal for merge_documents reducer
+        "reranked_documents": [None],  # Reset signal for merge_documents reducer
+        "synthesized_context": "",  # Clear synthesis
+        "current_step_index": -1,  # Reset step counter
+        "num_iterations": 0,  # Reset iteration counter
     }
 
 
@@ -639,7 +479,9 @@ async def overall_convo_summarization_node(state: State) -> dict[str, Any]:
         return {"summary": summary}
 
     # Delete ALL but the last 2 messages
-    messages_to_remove = [RemoveMessage(id=m.id) for m in state["messages"][:-2]]  # type: ignore
+    messages_to_remove: list[AnyMessage] = [
+        RemoveMessage(id=m.id) for m in state["messages"][:-2]
+    ]  # type: ignore
 
     return {
         # The `add_messages` reducer will handle removing the old messages
@@ -702,10 +544,10 @@ async def update_lt_memory_node(
 
         if new_memory:
             # Simple append: existing + new
-            updated_memory: dict[str, Any] = append_memory(
-                existing_memory, new_memory.model_dump()
-            )  # type: ignore
-
+            updated_memory: dict[str, Any] = append_memory(  # type: ignore
+                existing_memory,
+                new_memory.model_dump(),
+            )
             await store.aput(namespace, key, value={"memory": updated_memory})
             logger.info("💥 Memory updated")
 
@@ -747,7 +589,7 @@ def should_summarize_overal_convo(state: State) -> SummarizationConditionType:
 async def should_continue_condition(
     state: State, max_reasoning_interations: int = 8
 ) -> NextAction:
-    """Determine if the current step should be retried.
+    """Determine if the current step should be retried, re-planned, or finished.
 
     Parameters
     ----------
@@ -759,14 +601,14 @@ async def should_continue_condition(
     Returns
     -------
     NextAction
-        The next action to take (CONTINUE or FINISH).
+        The next action to take (CONTINUE, FINISH, or RE_PLAN).
     """
     logger.info("--- Evaluating Multi Step Reasoning Policy ---")
     is_related_to_context: bool = state.get("is_related_to_context", True)
     current_step_idx: int = state["current_step_index"]
     num_iterations: int = state.get("num_iterations", 0)
 
-    # Checks
+    # ===== Checks =====
     # If query does NOT relate to the topics, finish immediately
     if not is_related_to_context:
         logger.info(" -> Query not related to context. Finishing...")
@@ -774,7 +616,26 @@ async def should_continue_condition(
 
     # Are all the steps completed?
     if state["plan"] and (current_step_idx >= len(state["plan"].steps)):
-        logger.info(f" -> Plan complete. {num_iterations} iterations. Finishing...")
+        logger.info(
+            " -> Plan complete. All steps are done. Checking if research is complete..."
+        )
+
+        # Get decision from LLM to determine if we should re-plan or finish
+        history: str = convert_context_to_str(state["step_state"])
+        decision = await get_decision(
+            question=state["original_question"],
+            plan=state["plan"],
+            history=history,
+        )
+        logger.info(
+            f" -> Decision: {decision.next_action} | Rationale: {decision.rationale}"
+        )
+
+        if decision.next_action == NextAction.RE_PLAN:
+            logger.info(
+                "📋 -> Re-planning: Research incomplete, generating new plan..."
+            )
+            return NextAction.RE_PLAN
         return NextAction.FINISH
 
     # Is the max num of iterations exhausted?
@@ -784,10 +645,10 @@ async def should_continue_condition(
         )
         return NextAction.FINISH
 
-    # Last retrieval step failed to find any docs
+    # No retrieved documents yet
     if state.get("reranked_documents") is not None and not state["reranked_documents"]:
         logger.info(
-            "⚠️ -> Retrieval failed for the last step. Continuing with next step in plan."
+            "⚠️ -> No retrieved documents yet. Continuing with next step in plan..."
         )
         return NextAction.CONTINUE
 

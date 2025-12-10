@@ -49,14 +49,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         request_id = getattr(request.state, "request_id", "N/A")
         response: Response = await call_next(request)
-        process_time: float = time.perf_counter() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
+        # in milliseconds
+        process_time: float = round(((time.perf_counter() - start_time) * 1000), 2)
+        response.headers["X-Process-Time-MS"] = str(process_time)
 
         log: dict[str, Any] = {
             "method": request.method,
             "path": request.url.path,
             "status_code": response.status_code,
-            "process_time_secs": round(process_time, 4),
+            "process_time_ms": process_time,
             "request_id": request_id,
         }
 
