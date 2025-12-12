@@ -725,8 +725,7 @@ def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
     # Type checking
     if type(existing) is not type(new):
         raise ValueError(
-            f"Existing and new memory data must be of the same type. "
-            f"Got {type(existing)} and {type(new)}"
+            f"Existing and new memory data must be of the same type. Got {type(existing)} and {type(new)}"
         )
 
     if isinstance(existing, list) and isinstance(new, list):
@@ -1159,3 +1158,70 @@ async def rerank_retrieved_documents(state: "State") -> dict[str, Any]:
     )
 
     return {"reranked_documents": reranked_docs}
+
+
+def format_generated_content(node: str, data: dict[str, Any]) -> str:
+    """Format the generated content based on the node type.
+
+    Parameters
+    ----------
+    node : str
+        The type of node generating the content.
+    data : dict[str, Any]
+        The data produced by the node.
+
+    Returns
+    -------
+    str
+        A formatted string representation of the generated content.
+    """
+    try:
+        if node == "validate_query":
+            query: str = data[node]["step_state"][-1]["question"]
+            is_related_to_context: bool = data[node]["is_related_to_context"]
+            return json.dumps(
+                {"query": query, "is_related_to_context": is_related_to_context}
+            )
+
+        if node == "generate_plan":
+            if data[node] is None:
+                return "No plan generated."
+            return format_plan(Plan.model_validate(data[node]["plan"]))
+
+        if node in ["internet_search", "retrieve_internal_docs"]:
+            _data = data[node]["step_state"][-1]
+            re_written_queries = _data["rewritten_queries"]
+            num_retrieved_docs = len(_data["reranked_documents"])
+            sources = [
+                doc.metadata.get("source", "unknown")
+                for doc in _data["reranked_documents"]
+            ]
+            return json.dumps(
+                {
+                    "re_written_queries": re_written_queries,
+                    "num_retrieved_docs": num_retrieved_docs,
+                    "sources": sources,
+                }
+            )
+
+        if node == "compress_documents":
+            return data[node]["synthesized_context"]
+
+        if node == "reflect":
+            current_step: int = data[node]["step_state"][-1]["step_index"]
+            summary: str = data[node]["step_state"][-1]["summary"]
+            return json.dumps({"current_step": current_step, "summary": summary})
+
+        if node == "final_answer":
+            return data[node]["final_answer"]
+
+        if node == "update_lt_memory" and data[node]:
+            return "Long-term memory updated successfully."
+
+        if node == "overall_convo_summarization" and data[node]:
+            return "Conversation summarized successfully."
+
+    except KeyError as e:
+        print(f"KeyError in format_generated_content: {e}")
+
+    return "[NULL]"  # Default return if no conditions met

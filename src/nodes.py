@@ -219,8 +219,7 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
     current_step_idx: int = state["current_step_index"]
     current_step: Step = state["plan"].steps[current_step_idx]
     logger.info(
-        f"🛢 Using Vector DB\nRetrieving documents for Step "
-        f"{current_step_idx}: {current_step.question}"
+        f"🛢 Using Vector DB\nRetrieving documents for Step {current_step_idx}: {current_step.question}"
     )
 
     # Re-write the query and determine retrieval method concurrently
@@ -232,7 +231,7 @@ async def retrieve_internal_docs_node(state: State) -> dict[str, Any]:
         determine_retrieval_type(question=current_step.question),
     )
 
-    rewritten_queries: list[str] = re_written_query_obj.rewritten_query
+    rewritten_queries: list[str] = re_written_query_obj.rewritten_queries
     # logger.info(f"Re-written queries: {rewritten_queries}")
     # logger.info(
     #     f"Selected retrieval method: {retriever_method.method};"
@@ -380,10 +379,11 @@ async def reflection_node(state: State) -> dict[str, Any]:
 
 
 @traceable
-async def final_answer_node(state: State) -> dict[str, Any]:
+async def final_answer_node(state: State, config: RunnableConfig) -> dict[str, Any]:
     """Generate the final answer with citations based on all collected evidence."""
 
     logger.info("--- ✅: Generating Final Answer with Citations ---")
+    user_id: str = config["configurable"]["user_id"]
     # Gather all the evidence we've collected from ALL steps.
     final_context: str = ""
     for step in state["step_state"]:
@@ -402,7 +402,7 @@ async def final_answer_node(state: State) -> dict[str, Any]:
             final_context += f"Source: {source}\nContent: {doc.page_content}\n\n"
 
     prompt: str = prompt_builder.final_answer_prompt(
-        question=state["original_question"]
+        question=state["original_question"], user_id=user_id
     )
     context: str = f"<CONTEXT>{final_context}</CONTEXT>"
 
@@ -479,9 +479,10 @@ async def overall_convo_summarization_node(state: State) -> dict[str, Any]:
         return {"summary": summary}
 
     # Delete ALL but the last 2 messages
-    messages_to_remove: list[AnyMessage] = [
-        RemoveMessage(id=m.id) for m in state["messages"][:-2]
-    ]  # type: ignore
+    messages_to_remove: list[AnyMessage] = [  # type: ignore
+        RemoveMessage(id=m.id)  # type: ignore
+        for m in state["messages"][:-2]
+    ]
 
     return {
         # The `add_messages` reducer will handle removing the old messages

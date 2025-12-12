@@ -37,6 +37,26 @@ config:
     embedding_model:
       model_name: qwen/qwen3-embedding-8b
 
+  celery_config:
+    celery_broker: redis
+    celery_backend: redis
+    celery_task_track_started: true
+    celery_task_time_limit: 1800
+    celery_task_soft_time_limit: 1700
+
+  stream_config:
+    stream_prefix: "rag:stream:"
+    stream_ttl: 3600
+    max_stream_length: 1000
+
+  sse_config:
+    sse_retry_timeout: 15000 # 15 seconds
+    sse_keepalive_interval: 30 # 30 seconds
+
+  session_config:
+    session_cleanup_interval: 300 # 5 minutes
+    session_idle_timeout: 3600
+
   api_config:
     title: Deep Thinking RAG
     name: "${.title}"

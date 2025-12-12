@@ -12,6 +12,7 @@ from src import create_logger
 from src.api.core.cache import CacheSetup
 from src.api.core.ratelimit import limiter
 from src.config import app_config, app_settings
+from src.db.init import init_db
 from src.graph import GraphManager
 from src.utilities.bm25_utils import BM25Setup
 from src.utilities.embeddings import OpenRouterEmbeddings
@@ -51,12 +52,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         )
         logger.info("Starting up application and loading model...")
 
+        # Initialize database
+        init_db()
+
         # ====================================================
         # ================= Load Dependencies ================
         # ====================================================
 
         # ==== Setup graph manager ====
         graph_manager = GraphManager()
+        await graph_manager.ainit_graph_memory()
         app.state.graph_manager = graph_manager
 
         # ==== Setup vectorstore ====
@@ -134,8 +139,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         # ==== Cleanup graph manager ====
         if hasattr(app.state, "graph_manager"):
             try:
-                await app.state.graph_manager.cleanup_checkpointer()
-                await app.state.graph_manager.cleanup_long_term_memory()
+                await app.state.graph_manager.acleanup()
                 logger.info("🚨 Graph manager shutdown completed.")
             except Exception as e:
                 logger.error(f"❌ Error cleaning up graph manager: {e}")

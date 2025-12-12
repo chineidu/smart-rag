@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
 
 if TYPE_CHECKING:
@@ -6,10 +6,10 @@ if TYPE_CHECKING:
 
     from src.schemas.base import ModelList
 
-type MemoryData = "ModelList[T] | list[dict[str, Any]] | dict[str, Any] | TypedDict"  # type: ignore
-
 # TypeVar bound to BaseModel - accepts any Pydantic model
 T = TypeVar("T", bound="BaseModel")
+
+type MemoryData = "ModelList[T] | list[dict[str, Any]] | dict[str, Any] | TypedDict"  # type: ignore
 
 
 class RetrieverMethodType(StrEnum):
@@ -80,6 +80,28 @@ class MemoryKeys(StrEnum):
     USER_PREFERENCES_KEY = "user_preferences"
 
 
+class RoleType(StrEnum):
+    """Enumeration of possible user roles."""
+
+    ADMIN = "admin"
+    USER = "user"
+    GUEST = "guest"
+
+
+class FeedbackType(str, Enum):
+    """Enumeration of possible feedback types.
+
+    Note
+    ----
+    NEUTRAL is represented as None
+    Can't use `StrEnum` here because we want None as a value
+    """
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = None
+
+
 class SectionNamesType(StrEnum):
     """The type of filters available for retrieval searches."""
 
@@ -94,16 +116,10 @@ class SectionNamesType(StrEnum):
         "PURCHASES OF EQUITY SECURITIES"
     )
     ITEM_6 = "ITEM 6. [RESERVED]"
-    ITEM_7 = (
-        "ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND "
-        "RESULTS OF OPERATIONS"
-    )
+    ITEM_7 = "ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS"
     ITEM_7A = "ITEM 7A. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK"
     ITEM_8 = "ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA"
-    ITEM_9 = (
-        "ITEM 9. CHANGES IN AND DISAGREEMENTS WITH ACCOUNTANTS ON ACCOUNTING AND "
-        "FINANCIAL DISCLOSURE"
-    )
+    ITEM_9 = "ITEM 9. CHANGES IN AND DISAGREEMENTS WITH ACCOUNTANTS ON ACCOUNTING AND FINANCIAL DISCLOSURE"
     ITEM_9A = "ITEM 9A. CONTROLS AND PROCEDURES"
     ITEM_9C = (
         "ITEM 9C. DISCLOSURE REGARDING FOREIGN JURISDICTIONS THAT PREVENT INSPECTIONS"
@@ -118,3 +134,31 @@ class SectionNamesType(StrEnum):
     ITEM_14 = "ITEM 14. PRINCIPAL ACCOUNTANT FEES AND SERVICES"
     ITEM_15 = "ITEM 15. EXHIBIT AND FINANCIAL STATEMENT SCHEDULES"
     ITEM_16 = "ITEM 16. FORM 10-K SUMMARY"
+
+
+class BrokerOrBackendType(StrEnum):
+    """The type of broker or backend to use for task queuing and execution."""
+
+    REDIS = "redis"
+    RABBITMQ = "rabbitmq"
+
+
+class EventsType(StrEnum):
+    """The type of events for SSE."""
+
+    SESSION_STARTED = "session_started"
+    SESSION_ENDED = "session_ended"
+    ERROR = "error"
+    KEEPALIVE = "keepalive"
+
+    # Custom event types
+    VALIDATE_QUERY = "validate_query"
+    UNRELATED_QUERY = "unrelated_query"
+    GENERATE_PLAN = "generate_plan"
+    RETRIEVE_INTERNAL_DOCS = "retrieve_internal_docs"
+    INTERNET_SEARCH = "internet_search"
+    COMPRESS_DOCUMENTS = "compress_documents"
+    REFLECT = "reflect"
+    FINAL_ANSWER = "final_answer"
+    OVERALL_CONVO_SUMMARIZATION = "overall_convo_summarization"
+    UPDATE_LT_MEMORY = "update_lt_memory"

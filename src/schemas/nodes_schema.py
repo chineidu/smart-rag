@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field  # type: ignore
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 from .types import NextAction, RetrieverMethodType, ToolsType
 
@@ -22,11 +24,14 @@ class Step(BaseModel):
         description="The target section in the document to focus on. This is ONLY required when "
         "the tool is 'vector_store'. e.g., 'ITEM 1A. RISK FACTORS'.",
     )
-    depends_on: list[int] = Field(
-        default_factory=list,
-        description="List of step indices (0-based) that this step depends on. "
-        "Leave empty if this step can run immediately.",
-    )
+
+    @field_validator("tool", mode="before")
+    @classmethod
+    def validate_tool(cls, v: Any) -> ToolsType:
+        """Extract the value form the enum."""
+        if isinstance(v, ToolsType):
+            return v.value
+        return ToolsType(v).value
 
 
 class Plan(BaseModel):
@@ -48,6 +53,14 @@ class ValidateQuery(BaseModel):
     next_action: NextAction = Field(description="The next action to take.")
     rationale: str = Field(description="The brief reasoning behind the decision.")
 
+    @field_validator("next_action", mode="after")
+    @classmethod
+    def validate_next_action(cls, v: Any) -> NextAction:
+        """Extract the value form the enum."""
+        if isinstance(v, NextAction):
+            return v.value
+        return NextAction(v).value
+
 
 class RetrieverMethod(BaseModel):
     method: RetrieverMethodType = Field(
@@ -55,10 +68,26 @@ class RetrieverMethod(BaseModel):
     )
     rationale: str = Field(description="The brief reasoning behind the decision.")
 
+    @field_validator("method", mode="before")
+    @classmethod
+    def validate_method(cls, v: Any) -> RetrieverMethodType:
+        """Extract the value form the enum."""
+        if isinstance(v, RetrieverMethodType):
+            return v.value
+        return RetrieverMethodType(v).value
+
 
 class Decision(BaseModel):
     next_action: NextAction = Field(..., description="The next action to take.")
     rationale: str = Field(description="The brief reasoning behind the decision.")
+
+    @field_validator("next_action", mode="before")
+    @classmethod
+    def validate_next_action(cls, v: Any) -> NextAction:
+        """Extract the value form the enum."""
+        if isinstance(v, NextAction):
+            return v.value
+        return NextAction(v).value
 
 
 class StructuredMemoryResponse(BaseModel):
@@ -75,8 +104,7 @@ class StructuredMemoryResponse(BaseModel):
     )
     constraints: list[str] = Field(
         default_factory=list,
-        description="Standing limitations or constraints. (e.g., avoid using "
-        "things specified by the user)",
+        description="Standing limitations or constraints. (e.g., avoid using things specified by the user)",
     )
     interests: list[str] = Field(
         default_factory=list,

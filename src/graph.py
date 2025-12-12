@@ -30,59 +30,47 @@ logger = create_logger(name="graph_manager")
 # Constants
 INITIAL_RETRY_INTERVAL: float = 1.0
 MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
-DB_URI: str = app_settings.database_url
+DB_URI: str = app_settings.database_url.replace("+psycopg2", "")
 
 
 class GraphManager:
-    """Manages LangGraph instances with PostgreSQL checkpointing."""
+    """Manages LangGraph instances with PostgreSQL checkpointing.
+
+    Methods
+    -------
+    ainit_graph_memory()
+        Initializes both checkpointer and long-term memory.
+
+    acleanup()
+        Cleans up resources used by the GraphManager.
+
+    abuild_graph(force_rebuild: bool = False) -> CompiledStateGraph
+        Builds and compiles the state graph.
+    """
 
     def __init__(self) -> None:
+        # Flags to track initialization status
+        self._checkpointer_initialized: bool = False
+        self._long_term_memory_initialized: bool = False
+        self._graph_initialized: bool = False
+
         self.checkpointer: AsyncPostgresSaver | None = None
         self.checkpointer_context = None
         self.graph_instance: CompiledStateGraph | None = None
         self.long_term_memory: BaseStore | None = None
         self.long_term_memory_context = None
 
-    async def initialize_checkpointer(self) -> None:
-        """Initialize the Postgres checkpointer."""
-        if self.checkpointer is None:
-            self.checkpointer_context = AsyncPostgresSaver.from_conn_string(DB_URI)
-            self.checkpointer = await self.checkpointer_context.__aenter__()  # type: ignore
-            await self.checkpointer.setup()
+    async def ainit_graph_memory(self) -> None:
+        """Initialize both checkpointer and long-term memory."""
+        await self._ainitialize_checkpointer()
+        await self._ainitialize_long_term_memory()
 
-    async def initialize_long_term_memory(self) -> None:
-        """Initialize long-term memory store."""
-        if self.long_term_memory is None:
-            self.long_term_memory_context = AsyncPostgresStore.from_conn_string(DB_URI)
-            self.long_term_memory = await self.long_term_memory_context.__aenter__()  # type: ignore
-            await self.long_term_memory.setup()
+    async def acleanup(self) -> None:
+        """Clean up resources used by the GraphManager."""
+        await self._cleanup_checkpointer()
+        await self._cleanup_long_term_memory()
 
-    async def cleanup_checkpointer(self) -> None:
-        """Clean up the Postgres checkpointer."""
-        if self.checkpointer_context is not None and self.checkpointer is not None:
-            try:
-                await self.checkpointer_context.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error cleaning up checkpointer: {e}")
-            finally:
-                self.checkpointer = None
-                self.checkpointer_context = None
-
-    async def cleanup_long_term_memory(self) -> None:
-        """Clean up the long-term memory store."""
-        if (
-            self.long_term_memory_context is not None
-            and self.long_term_memory is not None
-        ):
-            try:
-                await self.long_term_memory_context.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error cleaning up long-term memory: {e}")
-            finally:
-                self.long_term_memory = None
-                self.long_term_memory_context = None
-
-    async def build_graph(self, force_rebuild: bool = False) -> CompiledStateGraph:
+    async def abuild_graph(self, force_rebuild: bool = False) -> CompiledStateGraph:
         """Build and compile the state graph.
 
         Parameters
@@ -106,11 +94,11 @@ class GraphManager:
 
         # Ensure checkpointer is initialized
         if self.checkpointer is None:
-            await self.initialize_checkpointer()
+            await self._ainitialize_checkpointer()
 
         # Ensure long-term memory is initialized
         if self.long_term_memory is None:
-            await self.initialize_long_term_memory()
+            await self._ainitialize_long_term_memory()
 
         # Otherwise, build the graph
         builder: StateGraph = StateGraph(State)
@@ -243,5 +231,49 @@ class GraphManager:
         logger.info(
             "Graph instance built and compiled with Postgres checkpointer and long-term memory."
         )
+        self._graph_initialized = True
 
         return self.graph_instance
+
+    async def _ainitialize_checkpointer(self) -> None:
+        """Initialize the Postgres checkpointer."""
+        if self.checkpointer is None:
+            self.checkpointer_context = AsyncPostgresSaver.from_conn_string(DB_URI)
+            self.checkpointer = await self.checkpointer_context.__aenter__()  # type: ignore
+            self._checkpointer_initialized = True
+            await self.checkpointer.setup()
+
+    async def _ainitialize_long_term_memory(self) -> None:
+        """Initialize long-term memory store."""
+        if self.long_term_memory is None:
+            self.long_term_memory_context = AsyncPostgresStore.from_conn_string(DB_URI)
+            self.long_term_memory = await self.long_term_memory_context.__aenter__()  # type: ignore
+            self._long_term_memory_initialized = True
+            await self.long_term_memory.setup()
+
+    async def _cleanup_checkpointer(self) -> None:
+        """Clean up the Postgres checkpointer."""
+        if self.checkpointer_context is not None and self.checkpointer is not None:
+            try:
+                await self.checkpointer_context.__aexit__(None, None, None)
+            except Exception as e:
+                logger.error(f"Error cleaning up checkpointer: {e}")
+            finally:
+                self.checkpointer = None
+                self.checkpointer_context = None
+                self._checkpointer_initialized = False
+
+    async def _cleanup_long_term_memory(self) -> None:
+        """Clean up the long-term memory store."""
+        if (
+            self.long_term_memory_context is not None
+            and self.long_term_memory is not None
+        ):
+            try:
+                await self.long_term_memory_context.__aexit__(None, None, None)
+            except Exception as e:
+                logger.error(f"Error cleaning up long-term memory: {e}")
+            finally:
+                self.long_term_memory = None
+                self.long_term_memory_context = None
+                self._long_term_memory_initialized = False

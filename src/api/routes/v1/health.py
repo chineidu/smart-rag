@@ -6,12 +6,13 @@ from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
+from src.api.core.reponses import MsgSpecJSONResponse
 from src.config import app_config
 from src.schemas.routes import HealthStatusSchema
 
 logger = create_logger(name="health")
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], default_response_class=MsgSpecJSONResponse)
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)

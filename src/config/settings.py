@@ -76,6 +76,12 @@ class Settings(BaseSettingsConfig):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
+    # ===== CELERY =====
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: SecretStr = SecretStr("redis")
+    REDIS_DB: int = 1
+
     # ======= Server settings =======
     ENVIRONMENT: str = "development"  # development | production
     HOST: str = "0.0.0.0"

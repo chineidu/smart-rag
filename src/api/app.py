@@ -13,7 +13,7 @@ from src.api.core.middleware import (
     LoggingMiddleware,
     RequestIDMiddleware,
 )
-from src.api.routes import health, rag, retrievals
+from src.api.routes import health, rag, retrievals, stream
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
@@ -59,7 +59,7 @@ def create_application() -> FastAPI:
     app.include_router(health.router, prefix=prefix)
     app.include_router(rag.router, prefix=prefix)
     app.include_router(retrievals.router, prefix=prefix)
-    # app.include_router(prediction.router, prefix=prefix)
+    app.include_router(stream.router, prefix=prefix)
     # app.include_router(status.router, prefix=prefix)
 
     # Add exception handlers
@@ -76,7 +76,7 @@ if __name__ == "__main__":
             "src.api.app:app",
             host=app_settings.HOST,
             port=app_settings.PORT,
-            workers=app_settings.WORKERS,
+            workers=None,  # Will be handled by Gunicorn
             reload=app_settings.RELOAD,
             loop="uvloop",  # Use uvloop for better async performance
         )

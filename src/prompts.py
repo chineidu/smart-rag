@@ -381,9 +381,11 @@ class PromptsBuilder:
         """Generate the compression prompt with specified question."""
         return self.COMPRESSION_PROMPT.format(question=question)
 
-    def final_answer_prompt(self, question: str) -> str:
+    def final_answer_prompt(self, question: str, user_id: str | None = None) -> str:
         """Generate the final answer prompt with specified question."""
-        return self.FINAL_ANSWER_PROMPT.format(question=question)
+        return self.FINAL_ANSWER_PROMPT.format(
+            question=question, user_id=user_id or "anonymous"
+        )
 
     def overall_convo_summary_prompt(self, summary: str) -> str:
         """Generate the overall conversation summary prompt with specified summary."""

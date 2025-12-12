@@ -8,6 +8,7 @@ from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
+from src.api.core.reponses import MsgSpecJSONResponse
 from src.config.settings import app_settings
 from src.schemas.types import SectionNamesType
 from src.utilities.tools.tools import (
@@ -19,7 +20,10 @@ from src.utilities.tools.tools import (
 
 logger = create_logger(name="retrieval")
 LIMIT_VALUE: int = app_settings.LIMIT_VALUE
-router = APIRouter(tags=["retrieval"])
+router = APIRouter(
+    tags=["retrieval"],
+    default_response_class=MsgSpecJSONResponse,
+)
 
 
 @router.get("/retrievals/keyword", status_code=status.HTTP_200_OK)

@@ -43,6 +43,7 @@ class CrossEncoderSetup:
             num_labels=self.num_labels,
             max_length=self.max_length,
             device=self.device,
+            local_files_only=True,  # Use locally cached models only
         )
         self._initialized = True
         logger.info(
