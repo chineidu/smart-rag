@@ -70,6 +70,7 @@ class ResourcesType(StrEnum):
     GRAPH = "graph"
     RATE_LIMITER = "rate_limiter"
     VECTOR_STORE = "vector_store"
+    STREAM_SESSION = "stream_session"
     UNKNOWN = "unknown"  # Used when the resource type is not recognized
 
 
@@ -162,3 +163,14 @@ class EventsType(StrEnum):
     FINAL_ANSWER = "final_answer"
     OVERALL_CONVO_SUMMARIZATION = "overall_convo_summarization"
     UPDATE_LT_MEMORY = "update_lt_memory"
+
+
+class TaskStatusType(StrEnum):
+    """The status of a Celery task."""
+
+    ERROR = "ERROR"
+    FAILURE = "FAILURE"
+    PENDING = "PENDING"
+    RETRY = "RETRY"
+    STARTED = "STARTED"
+    SUCCESS = "SUCCESS"

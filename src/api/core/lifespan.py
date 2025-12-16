@@ -9,10 +9,9 @@ from langchain_core.embeddings import Embeddings
 from qdrant_client.qdrant_client import QdrantClient
 
 from src import create_logger
-from src.api.core.cache import CacheSetup
+from src.api.core.cache import setup_cache
 from src.api.core.ratelimit import limiter
 from src.config import app_config, app_settings
-from src.db.init import init_db
 from src.graph import GraphManager
 from src.utilities.bm25_utils import BM25Setup
 from src.utilities.embeddings import OpenRouterEmbeddings
@@ -52,16 +51,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         )
         logger.info("Starting up application and loading model...")
 
-        # Initialize database
-        init_db()
-
         # ====================================================
         # ================= Load Dependencies ================
         # ====================================================
 
-        # ==== Setup graph manager ====
+        # ---------- Setup rate limiter ----------
+        app.state.limiter = limiter
+
+        # ---------- Setup GraphManager ----------
         graph_manager = GraphManager()
-        await graph_manager.ainit_graph_memory()
         app.state.graph_manager = graph_manager
 
         # ==== Setup vectorstore ====
@@ -84,7 +82,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
         set_vectorstore_setup(vs_setup)
 
-        # ==== Setup bm25 ====
+        # ---------- Setup bm25 ----------
         bm25_setup = BM25Setup(documents=vs_setup.get_documents() or [])
         bm25_model_dict = bm25_setup.load_model()
         if not bm25_setup.is_ready() or bm25_model_dict is None:
@@ -94,7 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         from src.startup import set_bm25_setup
 
         set_bm25_setup(bm25_setup)
-        # ==== Setup reranker ====
+        # ---------- Setup reranker ----------
         reranker_setup = CrossEncoderSetup(
             model_name_or_path=app_config.llm_model_config.cross_encoder_model.model_name,
             num_labels=app_config.llm_model_config.cross_encoder_model.num_labels,
@@ -110,14 +108,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
         set_reranker_setup(reranker_setup)
 
-        # ==== Setup cache ====
-        cache_setup = CacheSetup()
-        app.state.cache_setup = cache_setup
-        app.state.cache = cache_setup.setup_cache()
+        # ---------- Setup cache ----------
+        app.state.cache = setup_cache()
         logger.info("Cache initialized")
-
-        # ==== Setup rate limiter ====
-        app.state.limiter = limiter
 
         logger.info(
             f"Application startup completed in {time.perf_counter() - start_time:.2f} seconds"
@@ -136,36 +129,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     finally:
         logger.info("Shutting down application...")
 
-        # ==== Cleanup graph manager ====
+        # ---------- Cleanup GraphManager ----------
         if hasattr(app.state, "graph_manager"):
             try:
-                await app.state.graph_manager.acleanup()
-                logger.info("🚨 Graph manager shutdown completed.")
+                app.state.graph_manager = None
+                logger.info("GraphManager shutdown.")
             except Exception as e:
-                logger.error(f"❌ Error cleaning up graph manager: {e}")
+                logger.error(f"Error shutting down GraphManager: {e}")
 
-        # ==== Cleanup vectorstore setup ====
+        # ---------- Cleanup vectorstore setup ----------
         if hasattr(app.state, "vs_setup") and app.state.vs_setup.is_ready():
             try:
                 app.state.vs_setup.close()
             except Exception as e:
                 logger.error(f"❌ Error closing vectorstore setup: {e}")
 
-        # ==== Cleanup bm25 setup ====
+        # ---------- Cleanup bm25 setup ----------
         if hasattr(app.state, "bm25_setup") and app.state.bm25_setup.is_ready():
             try:
                 app.state.bm25_setup.close()
             except Exception as e:
                 logger.error(f"❌ Error closing bm25 setup: {e}")
 
-        # ==== Cleanup reranker setup ====
+        # ---------- Cleanup reranker setup ----------
         if hasattr(app.state, "reranker_setup") and app.state.reranker_setup.is_ready():
             try:
                 app.state.reranker_setup.close()
             except Exception as e:
                 logger.error(f"❌ Error closing reranker setup: {e}")
-
-        # ==== Cleanup rate limiter ====
+        # ---------- Cleanup rate limiter ----------
         if hasattr(app.state, "limiter"):
             try:
                 app.state.limiter = None
@@ -173,13 +165,3 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
             except Exception as e:
                 logger.error(f"❌ Error shutting down the rate limiter: {e}")
-
-        # ==== Cleanup cache ====
-        if hasattr(app.state, "cache_setup"):
-            # Cache will be automatically garbage collected
-            try:
-                app.state.cache_setup.close()
-
-            except Exception as e:
-                logger.warning(f"❌ Error clearing cache during shutdown: {e}")
-            logger.info("Cache shutdown initiated")

@@ -19,6 +19,45 @@ logger = create_logger(name="cache_utilities")
 type CacheDecorator = Callable[..., Callable[..., Coroutine[Any, Any, Any]]]
 
 
+def setup_cache() -> Cache:
+    """
+    Initialize Redis cache (call once at startup).
+
+    Connects to Redis using the REDIS_URL environment variable.
+    Falls back to in-memory cache if Redis is not available.
+
+    Returns:
+        Cache: Configured cache instance (Redis or MEMORY fallback)
+    """
+    redis_url: str = app_settings.redis_url
+
+    password = app_settings.REDIS_PASSWORD.get_secret_value()
+    db: int = app_settings.REDIS_DB
+
+    try:
+        # Create Redis cache
+        cache_kwargs: dict[str, Any] = {
+            "endpoint": app_settings.REDIS_HOST,
+            "port": app_settings.REDIS_PORT,
+            "serializer": JsonSerializer(),
+            "namespace": "main",
+        }
+        if password:
+            cache_kwargs["password"] = password
+        if db != 0:
+            cache_kwargs["db"] = db
+
+        return Cache(Cache.REDIS, **cache_kwargs)
+
+    except Exception as e:
+        warnings.warn(
+            f"Failed to connect to Redis ({redis_url}): {e}. Falling back to MEMORY cache.",
+            stacklevel=2,
+        )
+        # Fallback to in-memory cache
+        return Cache(Cache.MEMORY, serializer=JsonSerializer(), namespace="main")
+
+
 class CacheSetup:
     """Class to manage cache setup and lifecycle."""
 

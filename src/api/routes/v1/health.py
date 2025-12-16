@@ -8,7 +8,7 @@ from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
 from src.config import app_config
-from src.schemas.routes import HealthStatusSchema
+from src.schemas.routes.health import HealthStatusSchema
 
 logger = create_logger(name="health")
 

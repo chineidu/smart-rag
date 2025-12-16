@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 from dotenv import load_dotenv  # type: ignore
@@ -48,6 +49,13 @@ class Settings(BaseSettingsConfig):
     REDIS_PASSWORD: SecretStr = SecretStr("your_redis_password")
     REDIS_DB: int = 0
 
+    # ===== CELERY =====
+    CELERY_QUEUES: str = "low_priority_ml,normal_priority_ml,high_priority_ml"
+    CELERY_CONCURRENCY: int = 2
+    CELERY_POOL: Literal["prefork", "threads"] = "prefork"  # prefork | threads
+    CELERY_LOGLEVEL: Literal["info", "warning", "error", "debug"] = "info"
+    CELERY_HOSTNAME_SUFFIX: str = ""
+
     # ===== REMOTE INFERENCE =====
     # TOGETHER AI
     TOGETHER_API_KEY: SecretStr = SecretStr("your_api_key")
@@ -76,12 +84,6 @@ class Settings(BaseSettingsConfig):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
-    # ===== CELERY =====
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_PASSWORD: SecretStr = SecretStr("redis")
-    REDIS_DB: int = 1
-
     # ======= Server settings =======
     ENVIRONMENT: str = "development"  # development | production
     HOST: str = "0.0.0.0"
@@ -89,7 +91,7 @@ class Settings(BaseSettingsConfig):
     WORKERS: int = 2
     RELOAD: bool = False
     DEBUG: bool = False
-    LIMIT_VALUE: int = 60  # Rate limiting value
+    LIMIT_VALUE: int = 40  # Rate limiting value
 
     @field_validator(
         "PORT", "POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before"

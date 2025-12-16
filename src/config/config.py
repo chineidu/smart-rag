@@ -12,7 +12,7 @@ from src.schemas.types import BrokerOrBackendType, FileFormatsType
 
 
 @dataclass(slots=True, kw_only=True)
-class VectorStoreConfig(BaseSchema):
+class VectorStoreConfig:
     """Configuration for vector store."""
 
     filepaths: str = field(
@@ -91,7 +91,7 @@ class CustomConfig:
 
 
 @dataclass(slots=True, kw_only=True)
-class CreativeModelConfig(BaseSchema):
+class CreativeModelConfig:
     """Configuration for creative model."""
 
     model_name: str = field(
@@ -107,7 +107,7 @@ class CreativeModelConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class StructuredOutputModelConfig(BaseSchema):
+class StructuredOutputModelConfig:
     """Configuration for structured output model."""
 
     model_name: str = field(
@@ -126,7 +126,7 @@ class StructuredOutputModelConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class EmbeddingModelConfig(BaseSchema):
+class EmbeddingModelConfig:
     """Configuration for embedding model."""
 
     model_name: str = field(
@@ -135,7 +135,7 @@ class EmbeddingModelConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class CrossEncoderConfig(BaseSchema):
+class CrossEncoderConfig:
     """Configuration for cross encoder model."""
 
     model_name: str = field(
@@ -158,28 +158,194 @@ class CrossEncoderConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class CeleryConfig(BaseSchema):
-    """Configuration for Celery."""
+class QueueName:
+    queue: str
 
-    celery_broker: BrokerOrBackendType = field(
-        metadata={"description": "The broker URL for Celery."}
+
+@dataclass(slots=True, kw_only=True)
+class QueuesConfig:
+    """Configuration for the queues."""
+
+    high_priority_ml: str = field(
+        metadata={"description": "Queue for high priority ML tasks"}
     )
-    celery_backend: BrokerOrBackendType = field(
-        metadata={"description": "The backend URL for Celery."}
+    normal_priority_ml: str = field(
+        metadata={"description": "Queue for normal priority ML tasks"}
     )
-    celery_task_track_started: bool = field(
-        metadata={"description": "If True, track task start events."}
+    low_priority_ml: str = field(
+        metadata={"description": "Queue for low priority ML tasks"}
     )
-    celery_task_time_limit: int = field(
+    cleanups: str = field(metadata={"description": "Queue for cleanup tasks"})
+    notifications: str = field(metadata={"description": "Queue for user notifications"})
+    success_queue: str = field(
+        metadata={"description": "Queue for publishing successful NER tasks"}
+    )
+    failed_queue: str = field(
+        metadata={"description": "Queue for publishing failed NER tasks"}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class TaskConfig:
+    """Configuration for Celery tasks."""
+
+    task_serializer: str = field(
+        metadata={"description": "The serializer to use for Celery tasks."}
+    )
+    result_serializer: str = field(
+        metadata={"description": "The serializer to use for Celery task results."}
+    )
+    accept_content: list[str] = field(
+        default_factory=list,
+        metadata={"description": "List of accepted content types for Celery tasks."},
+    )
+    timezone: str = field(metadata={"description": "The timezone for Celery tasks."})
+    enable_utc: bool = field(
+        metadata={"description": "If True, enable UTC for Celery tasks."}
+    )
+    task_time_limit: int = field(
         metadata={"description": "Hard time limit for tasks in seconds."}
     )
-    celery_task_soft_time_limit: int = field(
+    task_soft_time_limit: int = field(
         metadata={"description": "Soft time limit for tasks in seconds."}
     )
 
 
 @dataclass(slots=True, kw_only=True)
-class StreamConfig(BaseSchema):
+class WorkerConfig:
+    """Configuration for Celery workers."""
+
+    worker_prefetch_multiplier: int = field(
+        metadata={"description": "The prefetch multiplier for Celery workers."}
+    )
+    task_reject_on_worker_lost: bool = field(
+        metadata={
+            "description": "If True, tasks are re-queued if a worker crashes. (Redis broker only)"
+        }
+    )
+    worker_max_tasks_per_child: int = field(
+        metadata={
+            "description": "Maximum number of tasks a worker can execute before being replaced."
+        }
+    )
+    worker_max_memory_per_child: int = field(
+        metadata={
+            "description": "Maximum memory (in bytes) a worker can use before being replaced."
+        }
+    )
+    task_acks_late: bool = field(
+        metadata={"description": "If True, tasks are acknowledged after execution."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class TaskAndSchedule:
+    """Configuration for a Celery task and its schedule."""
+
+    task: str = field(metadata={"description": "The name of the Celery task."})
+    schedule: int = field(metadata={"description": "The schedule interval in seconds."})
+
+
+@dataclass(slots=True, kw_only=True)
+class BeatSchedule:
+    """Configuration for a Celery Beat scheduled task."""
+
+    cleanup_old_records: TaskAndSchedule = field(
+        metadata={"description": "Scheduled task for cleaning up old records."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class BeatConfig:
+    """Configuration for Celery Beat."""
+
+    beat_schedule: BeatSchedule = field(
+        metadata={"description": "The schedule for periodic tasks."}
+    )
+    health_check: TaskAndSchedule = field(
+        metadata={"description": "Health check configuration."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class RedisConfig:
+    """Configuration for Redis-Celery."""
+
+    master_name: str = field(
+        metadata={"description": "The name of the Redis master for Sentinel."}
+    )
+    socket_timeout: float = field(
+        metadata={"description": "Socket timeout in seconds."}
+    )
+    socket_connect_timeout: float = field(
+        metadata={"description": "Socket connect timeout in seconds."}
+    )
+    socket_keepalive: bool = field(
+        metadata={"description": "If True, enable socket keepalive."}
+    )
+    socket_keepalive_options: dict[str, int] = field(
+        default_factory=dict,
+        metadata={"description": "Socket keepalive options."},
+    )
+    health_check_interval: int = field(
+        metadata={"description": "Interval for health checks in seconds."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class OtherConfig:
+    """Other Celery configurations."""
+
+    celery_broker: BrokerOrBackendType = field(
+        metadata={"description": "The type of message broker used by Celery."}
+    )
+    result_backend_always_retry: bool = field(
+        metadata={
+            "description": "If True, always retry connecting to the result backend."
+        }
+    )
+    result_persistent: bool = field(
+        metadata={"description": "If True, persist task results in the backend."}
+    )
+    result_backend_max_retries: int = field(
+        metadata={
+            "description": "Maximum number of retries for connecting to the result backend."
+        }
+    )
+    result_expires: int = field(
+        metadata={"description": "Time in seconds before a task result expires."}
+    )
+    num_processes: int = field(
+        metadata={"description": "Number of worker processes to spawn."}
+    )
+    redis_config: RedisConfig = field(
+        metadata={"description": "Redis-specific configurations."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class CeleryConfig:
+    """Configuration for Celery."""
+
+    task_config: TaskConfig = field(
+        metadata={"description": "Task-related configurations."}
+    )
+    task_routes: dict[str, QueueName] = field(
+        metadata={"description": "Routing configuration for Celery tasks."}
+    )
+    worker_config: WorkerConfig = field(
+        metadata={"description": "Worker-related configurations."}
+    )
+    beat_config: BeatConfig = field(
+        metadata={"description": "Beat-related configurations."}
+    )
+    other_config: OtherConfig = field(
+        metadata={"description": "Other Celery configurations."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamConfig:
     """Configuration for streams."""
 
     stream_prefix: str = field(
@@ -194,7 +360,7 @@ class StreamConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class SSEConfig(BaseSchema):
+class SSEConfig:
     """Configuration for Server-Sent Events (SSE)."""
 
     sse_retry_timeout: int = field(
@@ -206,7 +372,7 @@ class SSEConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class SessionConfig(BaseSchema):
+class SessionConfig:
     """Configuration for session management."""
 
     session_cleanup_interval: int = field(
@@ -218,7 +384,7 @@ class SessionConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class CORS(BaseSchema):
+class CORS:
     """CORS configuration class."""
 
     allow_origins: list[str] = field(
@@ -236,14 +402,14 @@ class CORS(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class Middleware(BaseSchema):
+class Middleware:
     """Middleware configuration class."""
 
     cors: CORS = field(metadata={"description": "CORS configuration."})
 
 
 @dataclass(slots=True, kw_only=True)
-class LLMModelConfig(BaseSchema):
+class LLMModelConfig:
     """Configuration for models."""
 
     creative_model: CreativeModelConfig = field(
@@ -261,7 +427,7 @@ class LLMModelConfig(BaseSchema):
 
 
 @dataclass(slots=True, kw_only=True)
-class APIConfig(BaseSchema):
+class APIConfig:
     """API-level configuration."""
 
     title: str = field(metadata={"description": "The title of the API."})
@@ -283,6 +449,7 @@ class AppConfig(BaseSchema):
     )
     custom_config: CustomConfig = Field(description="Custom configurations")
     llm_model_config: LLMModelConfig = Field(description="LLM model configurations.")
+    queues_config: QueuesConfig = Field(description="Queues configurations.")
     celery_config: CeleryConfig = Field(description="Celery configurations.")
     stream_config: StreamConfig = Field(description="Stream configurations.")
     sse_config: SSEConfig = Field(description="SSE configurations.")

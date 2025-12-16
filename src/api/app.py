@@ -13,7 +13,7 @@ from src.api.core.middleware import (
     LoggingMiddleware,
     RequestIDMiddleware,
 )
-from src.api.routes import health, rag, retrievals, stream
+from src.api.routes import health, history, rag, retrievals, stream, task_status
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
@@ -57,10 +57,11 @@ def create_application() -> FastAPI:
 
     # Include routers
     app.include_router(health.router, prefix=prefix)
+    app.include_router(history.router, prefix=prefix)
     app.include_router(rag.router, prefix=prefix)
     app.include_router(retrievals.router, prefix=prefix)
     app.include_router(stream.router, prefix=prefix)
-    # app.include_router(status.router, prefix=prefix)
+    app.include_router(task_status.router, prefix=prefix)
 
     # Add exception handlers
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

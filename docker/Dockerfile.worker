@@ -1,0 +1,39 @@
+FROM python:3.12-slim
+
+# Install system dependencies including supervisor
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    supervisor \
+    build-essential \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir uv && \
+    uv pip install --system --no-cache -e .
+
+# Copy application code
+COPY . .
+
+# Copy supervisord config
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create log directory
+RUN mkdir -p /var/log && chmod 777 /var/log
+
+# Expose port for Flower (optional - Celery monitoring)
+EXPOSE 5555
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD supervisorctl -c /etc/supervisor/conf.d/supervisord.conf status | grep -q RUNNING || exit 1
+
+# Start supervisord (manages all workers)
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

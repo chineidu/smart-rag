@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 import unicodedata
 from glob import glob
@@ -33,6 +34,7 @@ from src.schemas.nodes_schema import (
     Step,
 )
 from src.schemas.types import (
+    EventsType,
     FileFormatsType,
     MemoryData,
     RetrieverMethodType,
@@ -949,9 +951,9 @@ def concatenate_strings(existing: str, new: str) -> str:
     return f"{existing}{separator}{new}"
 
 
-# =========================================================
-# ============== HELPER FUNCTIONS FOR NODES ===============
-# =========================================================
+# ---------------------------------------------------------
+# -------------- HELPER FUNCTIONS FOR NODES ---------------
+# ---------------------------------------------------------
 def deduplicate(documents: list[Document]) -> list[Document]:
     """Deduplicate documents based on 'chunk_id' in metadata."""
     docs_dict: dict[str, Document] = {}
@@ -1176,19 +1178,22 @@ def format_generated_content(node: str, data: dict[str, Any]) -> str:
         A formatted string representation of the generated content.
     """
     try:
-        if node == "validate_query":
+        if node == EventsType.VALIDATE_QUERY.value:
             query: str = data[node]["step_state"][-1]["question"]
             is_related_to_context: bool = data[node]["is_related_to_context"]
             return json.dumps(
                 {"query": query, "is_related_to_context": is_related_to_context}
             )
 
-        if node == "generate_plan":
+        if node == EventsType.GENERATE_PLAN.value:
             if data[node] is None:
                 return "No plan generated."
             return format_plan(Plan.model_validate(data[node]["plan"]))
 
-        if node in ["internet_search", "retrieve_internal_docs"]:
+        if node in [
+            EventsType.INTERNET_SEARCH.value,
+            EventsType.RETRIEVE_INTERNAL_DOCS.value,
+        ]:
             _data = data[node]["step_state"][-1]
             re_written_queries = _data["rewritten_queries"]
             num_retrieved_docs = len(_data["reranked_documents"])
@@ -1204,24 +1209,67 @@ def format_generated_content(node: str, data: dict[str, Any]) -> str:
                 }
             )
 
-        if node == "compress_documents":
+        if node == EventsType.COMPRESS_DOCUMENTS.value and data[node]:
             return data[node]["synthesized_context"]
 
-        if node == "reflect":
+        if node == EventsType.REFLECT.value and data[node]:
             current_step: int = data[node]["step_state"][-1]["step_index"]
             summary: str = data[node]["step_state"][-1]["summary"]
             return json.dumps({"current_step": current_step, "summary": summary})
 
-        if node == "final_answer":
+        if node == EventsType.FINAL_ANSWER.value and data[node]:
             return data[node]["final_answer"]
 
-        if node == "update_lt_memory" and data[node]:
+        if node == EventsType.UPDATE_LT_MEMORY.value:
             return "Long-term memory updated successfully."
 
-        if node == "overall_convo_summarization" and data[node]:
+        if node == EventsType.OVERALL_CONVO_SUMMARIZATION.value:
             return "Conversation summarized successfully."
 
     except KeyError as e:
         print(f"KeyError in format_generated_content: {e}")
 
-    return "[NULL]"  # Default return if no conditions met
+    return "NULL"  # Default return if no conditions met
+
+
+def log_system_info() -> None:
+    """Log GPU information if available."""
+    # Only import torch if needed
+    import torch
+
+    # Initialize memory variables
+    allocated_gb = 0.0
+    reserved_gb = 0.0
+
+    # Check CUDA GPU
+    if torch.cuda.is_available():
+        device_name = torch.cuda.get_device_name(0)
+        total_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        allocated_gb = torch.cuda.memory_allocated() / (1024**3)
+        reserved_gb = torch.cuda.memory_reserved() / (1024**3)
+
+        logger.info(
+            f"🔥 CUDA GPU Device: {device_name} ({total_memory_gb:.2f} GB total)"
+        )
+        logger.info(
+            f"   Memory - Allocated: {allocated_gb:.2f}GB, Reserved: {reserved_gb:.2f}GB"
+        )
+        return
+
+    # Fallback to CPU
+    import psutil
+
+    cpu_count = os.cpu_count() or 0
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    total_memory_gb = memory.total / (1024**3)
+    available_memory_gb = memory.available / (1024**3)
+    used_memory_gb = memory.used / (1024**3)
+    memory_percent = memory.percent
+
+    logger.info("🚨 Using CPU for model inference (no GPU acceleration)")
+    logger.info(f"💻 CPU Info: {cpu_count} cores, Usage: {cpu_percent}%")
+    logger.info(
+        f"   Memory - Total: {total_memory_gb:.2f}GB, Used: {used_memory_gb:.2f}GB, "
+        f"Available: {available_memory_gb:.2f}GB ({memory_percent}% used)"
+    )

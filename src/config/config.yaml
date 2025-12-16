@@ -37,12 +37,62 @@ config:
     embedding_model:
       model_name: qwen/qwen3-embedding-8b
 
+  queues_config:
+    high_priority_ml: high_priority_ml # Queue for high priority ML tasks
+    normal_priority_ml: normal_priority_ml # Queue for normal priority ML tasks
+    low_priority_ml: low_priority_ml # Queue for low priority ML tasks
+    cleanups: periodic # Queue for cleanup tasks
+    notifications: user_notifications # Queue for user notifications
+    success_queue: ner_task_queue # Queue for publishing successful NER tasks
+    failed_queue: ner_task_failed # Queue for publishing failed NER tasks
+
   celery_config:
-    celery_broker: redis
-    celery_backend: redis
-    celery_task_track_started: true
-    celery_task_time_limit: 1800
-    celery_task_soft_time_limit: 1700
+    task_config:
+      task_serializer: json
+      task_time_limit: 1800
+      task_soft_time_limit: 1700
+      result_serializer: json
+      accept_content: ["json"]
+      timezone: UTC
+      enable_utc: true
+
+    # Task routing and queues
+    task_routes:
+      src.celery_app.tasks.periodic.*:
+        { queue: "${config.queues_config.cleanups}" }
+      src.celery_app.tasks.notifications.*:
+        { queue: "${config.queues_config.notifications}" }
+
+    worker_config:
+      worker_prefetch_multiplier: 1 # Busy workers are only assigned 1 task
+      worker_max_tasks_per_child: 100 # Limit the number of tasks a worker can process before being replaced
+      worker_max_memory_per_child: 2097152 # Max memory (in kilobytes) a worker can use before being replaced
+      task_acks_late: true # Acknowledge tasks after completion
+      task_reject_on_worker_lost: true # Re-queue tasks if a worker crashes (Redis broker only)
+
+    beat_config:
+      beat_schedule:
+        cleanup_old_records:
+          task: src.celery_app.tasks.periodic.cleanup_old_records
+          schedule: 3600 # 1 hour
+      health_check:
+        task: src.celery_app.tasks.periodic.health_check
+        schedule: 300 # 5 minutes
+
+    other_config:
+      celery_broker: redis
+      result_backend_always_retry: true
+      result_persistent: true
+      result_backend_max_retries: 3
+      result_expires: 18000 # 5 hours
+      num_processes: 2 # Number of worker processes
+      redis_config:
+        master_name: celery-redis
+        socket_timeout: 5.0
+        socket_connect_timeout: 5.0
+        socket_keepalive: true
+        socket_keepalive_options: {}
+        health_check_interval: 30 # 30 seconds
 
   stream_config:
     stream_prefix: "rag:stream:"

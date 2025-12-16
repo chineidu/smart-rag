@@ -363,7 +363,7 @@ async def reflection_node(state: State) -> dict[str, Any]:
         "summary": synthesized_context,
     }
     logger.info(
-        f"⚠️ Number of steps completed: {current_step_idx + 1} | Num iterations: "
+        f"⚠️  Number of steps completed: {current_step_idx + 1} | Num iterations: "
         f"{state.get('num_iterations', 0) + 1}"
     )
 

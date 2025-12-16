@@ -1,3 +1,3 @@
-from .v1 import health, rag, retrievals, stream
+from .v1 import health, history, rag, retrievals, stream, task_status
 
-__all__: list[str] = ["health", "rag", "retrievals", "stream"]
+__all__: list[str] = ["health", "history", "rag", "retrievals", "stream", "task_status"]

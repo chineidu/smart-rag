@@ -10,7 +10,8 @@ from src.graph import GraphManager
 from src.schemas.types import ResourcesType
 
 if TYPE_CHECKING:
-    pass
+    from src.stream_manager import StreamSessionManager
+
 
 _executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
@@ -31,6 +32,16 @@ async def get_cache(request: Request) -> Cache:
     if not hasattr(request.app.state, "cache") or request.app.state.cache is None:
         raise ResourcesNotFoundError(resource_type=ResourcesType.CACHE)
     return request.app.state.cache
+
+
+async def get_stream_session_manager(request: Request) -> "StreamSessionManager":
+    """Dependency to inject StreamSessionManager into endpoints."""
+    if (
+        not hasattr(request.app.state, "stream_session_manager")
+        or request.app.state.stream_session_manager is None
+    ):
+        raise ResourcesNotFoundError(resource_type=ResourcesType.STREAM_SESSION)
+    return request.app.state.stream_session_manager
 
 
 def get_executor(max_workers: int | None = None) -> ThreadPoolExecutor:

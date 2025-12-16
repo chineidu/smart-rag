@@ -1,3 +1,5 @@
+""" "API routes for document retrieval operations"""
+
 from typing import Any
 
 from aiocache import Cache

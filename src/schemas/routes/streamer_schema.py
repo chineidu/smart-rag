@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Annotated
 
@@ -12,6 +13,28 @@ def normalize_feedback(value: str | None) -> str | None:
     if value == "None":
         return None
     return value
+
+
+class QueryRequestSchema(BaseSchema):
+    """Query request model."""
+
+    query: str = Field(description="The user query.")
+
+
+@dataclass(slots=True, kw_only=True)
+class SessionResponse:
+    task_id: str = field(metadata={"description": "The unique task identifier."})
+    session_id: str | None = field(
+        metadata={"description": "The unique session identifier."}
+    )
+    message: str = field(metadata={"description": "Optional message."})
+
+
+@dataclass(slots=True, kw_only=True)
+class TaskResponse:
+    session_id: str = field(metadata={"description": "The unique session identifier."})
+    task_id: str = field(metadata={"description": "The unique task identifier."})
+    message: str = field(metadata={"description": "The task message or description."})
 
 
 class FeedbackRequestSchema(BaseSchema):
@@ -53,3 +76,9 @@ class FeedbackRequestSchema(BaseSchema):
         default_factory=lambda _: datetime.now().isoformat(timespec="seconds"),
         description="Timestamp (auto-generated if not provided)",
     )
+
+    """Schema for the summary response."""
+
+    label_summary: str | None = Field(default=None, description="The label summary")
+    entity_summary: str | None = Field(default=None, description="The entity summary")
+    overall_summary: str | None = Field(default=None, description="The overall summary")

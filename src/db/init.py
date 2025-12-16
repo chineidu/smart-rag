@@ -23,7 +23,7 @@ def init_db() -> None:
     logger.info("Database tables initialized")
 
     # Create default roles if they do not exist
-    description: list[str] = [
+    descriptions: list[str] = [
         "Administrator with full access",
         "Standard user with limited access",
         "Guest user with read-only access",
@@ -31,7 +31,7 @@ def init_db() -> None:
 
     with db_pool.get_session() as session:
         try:
-            for role, desc in zip(RoleType, description):
+            for role, desc in zip(RoleType, descriptions):
                 create_role(db=session, role=RoleSchema(name=role, description=desc))
             logger.info("Default roles created successfully")
         except Exception as e:

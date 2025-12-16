@@ -1,0 +1,10 @@
+supervisor: couldn't chdir to /app: ENOENT
+supervisor: child process was not spawned
+supervisor: couldn't chdir to /app: ENOENT
+supervisor: child process was not spawned
+supervisor: couldn't chdir to /app: ENOENT
+supervisor: child process was not spawned
+supervisor: couldn't chdir to /app: ENOENT
+supervisor: child process was not spawned
+[2025-12-16 02:03:22,010: INFO/MainProcess] Connected to redis://:**@localhost:6379/0
+[2025-12-16 02:03:22,026: INFO/MainProcess] worker_7726@macs-MacBook-Pro.local ready.

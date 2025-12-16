@@ -53,6 +53,18 @@ services:
       - default
     restart: unless-stopped
 
+  # For Redis GUI management
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+    # Connection URL:
+    # redis://:<password>@<host>:<port>/<db_number>
+    # e.g. redis://:redis@redis:6379/0
+    # Note: Use `redis` instead of `localhost` when connecting from within another container
+
   # Qdrant Vector Database
   qdrant:
     image: qdrant/qdrant:latest
