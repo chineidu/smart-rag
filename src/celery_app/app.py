@@ -68,6 +68,14 @@ def create_celery_app() -> Celery:
     )
 
     # Configuration
+    # Normalize task_routes into plain dicts so Celery can iterate over them
+    raw_task_routes = app_config.celery_config.task_routes or {}
+    # Convert to dict with queue names only. e.g. {"task.name": {"queue": "queue_name"} }
+    normalized_task_routes: dict[str, Any] = {
+        k: ({"queue": v.queue} if hasattr(v, "queue") else v)
+        for k, v in raw_task_routes.items()
+    }
+
     celery.conf.update(
         # DB result backend config
         # result_backend=app_settings.celery_database_url, # Using a SQL DB backend
@@ -90,7 +98,7 @@ def create_celery_app() -> Celery:
         timezone=app_config.celery_config.task_config.timezone,
         enable_utc=app_config.celery_config.task_config.enable_utc,
         # Task routing
-        task_routes=app_config.celery_config.task_routes,
+        task_routes=normalized_task_routes,
         # Beat schedule
         beat_schedule=beat_config_dict,  # dict is required!
         # Worker config

@@ -1,8 +1,18 @@
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Generator
+from typing import Any, Generator
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, func
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Table,
+    Text,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 from src.config import app_settings
@@ -144,6 +154,43 @@ class DBRole(Base):
         str
         """
         return f"{self.__class__.__name__}(id={self.id!r}, name={self.name!r})"
+
+
+class CeleryTaskCleanup(Base):
+    """Read-only model for Celery task cleanup operations.
+
+    This model reflects the actual Celery table structure with an 'id' column
+    that Celery expects, separate from your application models.
+    """
+
+    __tablename__: str = "celery_taskmeta"
+    __table_args__: dict[str, Any] = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(155), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    result: Mapped[bytes] = mapped_column(LargeBinary, nullable=True)
+    date_done: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    traceback: Mapped[str] = mapped_column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(155), nullable=True)
+    args: Mapped[str] = mapped_column(Text, nullable=True)
+    kwargs: Mapped[str] = mapped_column(Text, nullable=True)
+    worker: Mapped[str] = mapped_column(String(155), nullable=True)
+    retries: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
+    queue: Mapped[str] = mapped_column(String(155), nullable=True)
+
+    def __repr__(self) -> str:
+        """
+        Returns a string representation of the CeleryTaskCleanup object.
+
+        Returns
+        -------
+        str
+        """
+        return (
+            f"{self.__class__.__name__}(id={self.id!r}, task_id={self.task_id!r}, status={self.status!r}, "
+            f"date_done={self.date_done!r})"
+        )
 
 
 # =========================================================

@@ -174,3 +174,27 @@ class TaskStatusType(StrEnum):
     RETRY = "RETRY"
     STARTED = "STARTED"
     SUCCESS = "SUCCESS"
+
+
+class PoolType(StrEnum):
+    """Celery worker pool strategies.
+
+    Notes
+    -----
+    `PREFORK`: Process-based workers (separate Python processes). Provides strong
+    isolation and true parallelism for CPU-bound or non-thread-safe tasks, but
+    increases memory usage (model loaded per process).
+
+    `THREADS`: Thread-based workers (single process). Lower memory usage since
+    models can be shared; required for GPU/CUDA workloads to avoid context
+    conflicts. The Python GIL may limit pure-Python parallelism, though many ML
+    runtimes release the GIL during inference.
+
+    Selection (short):
+        - Prefer `THREADS` for GPUs, large models, ONNX/optimized ML inference,
+          or fast startup.
+        - Prefer `PREFORK` for isolation, CPU-bound work, or non-thread-safe code.
+    """
+
+    PREFORK = "prefork"
+    THREADS = "threads"
