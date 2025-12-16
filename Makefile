@@ -7,33 +7,36 @@ help:
 	@echo "Tool Chat - Available commands:"
 	@echo ""
 	@echo "📦 Development:"
-	@echo "  make install            - Install all dependencies"
-	@echo "  make test               - Run tests"
-	@echo "  make test-verbose       - Run tests with verbose output"
-	@echo "  make lint               - Run linter (ruff)"
-	@echo "  make format             - Format code (ruff)"
-	@echo "  make clean-cache        - Clean up cache and temporary files"
+	@echo "  make install                    - Install all dependencies"
+	@echo "  make test                       - Run tests"
+	@echo "  make test-verbose               - Run tests with verbose output"
+	@echo "  make lint                       - Run linter (ruff)"
+	@echo "  make format                     - Format code (ruff)"
+	@echo "  make clean-cache                - Clean up cache and temporary files"
 	@echo ""
 	@echo "🚀 Running the Application:"
-	@echo "  make api-run            - Run FastAPI server on http://localhost:8000"
-	@echo "                         Usage: make api-run WORKERS=1 for single-worker dev"
-	@echo "  make frontend           - Run Streamlit app on http://localhost:8501"
-	@echo "  make src                - Run both API and Streamlit (requires tmux)"
+	@echo "  make api-run                    - Run FastAPI server on http://localhost:8000"
+	@echo "                                    Usage: make api-run WORKERS=1 for single-worker dev"
+	@echo "  make celery-run                 - Run Celery worker"
+	@echo "  make celery-run-supervisord     - Run Celery worker with Supervisord"
+	@echo "  make celery-supervisord-status  - Check status of Celery worker with Supervisord"
+	@echo "  make frontend                   - Run Streamlit app on http://localhost:8501"
+	@echo "  make src                        - Run both API and Streamlit (requires tmux)"
 	@echo ""
 	@echo "🐳 Docker Services:"
-	@echo "  make up                 - Start all services"
-	@echo "  make down               - Stop all services"
-	@echo "  make restart            - Restart services"
-	@echo "  make logs               - View logs"
-	@echo "  make status             - Check status"
-	@echo "  make setup              - Setup from scratch"
-	@echo "  make clean-all          - Clean everything (including volumes)"
+	@echo "  make up                         - Start all services"
+	@echo "  make down                       - Stop all services"
+	@echo "  make restart                    - Restart services"
+	@echo "  make logs                       - View logs"
+	@echo "  make status                     - Check status"
+	@echo "  make setup                      - Setup from scratch"
+	@echo "  make clean-all                  - Clean everything (including volumes)"
 	@echo ""
 	@echo "🛠 Utilities:"
-	@echo "  make check-port         - Check if a port is in use (default PORT=8000)"
-	@echo "                           Usage: make check-port or make check-port PORT=5000"
-	@echo "  make kill-port          - Kill process using a port (default PORT=8000)"
-	@echo "                           Usage: make kill-port or make kill-port PORT=5000"
+	@echo "  make check-port                 - Check if a port is in use (default PORT=8000)"
+	@echo "                                    Usage: make check-port or make check-port PORT=5000"
+	@echo "  make kill-port                 - Kill process using a port (default PORT=8000)"
+	@echo "                                    Usage: make kill-port or make kill-port PORT=5000"
 
 # Number of Gunicorn workers. Use WORKERS=1 for local development to keep
 # in-memory sessions consistent across requests.
@@ -47,7 +50,7 @@ install:
 	@echo "📦 Installing dependencies..."
 	uv sync
 
-.PHONY: api-run frontend src
+.PHONY: api-run celery-run celery-run-supervisord celery-supervisord-status frontend src
 # ===============================
 # ========== START APP ==========
 # ===============================
@@ -70,6 +73,18 @@ api-run:
 		-k uvicorn.workers.UvicornWorker \
 		src.api.app:app \
 		-w $(WORKERS) --bind "0.0.0.0:$(PORT)"
+
+celery-run:
+	@echo "🚀 Starting Celery worker..."
+	uv run worker.py
+
+celery-run-supervisord:
+	@echo "🚀 Starting Celery worker with Supervisord..."
+	supervisord -c docker/supervisord.conf
+
+celery-supervisord-status:
+	@echo "🔍 Checking status of Celery worker with Supervisord..."
+	supervisorctl -c docker/supervisord.conf status
 
 frontend:
 	@echo "🎨 Starting Streamlit app on http://localhost:8501"
