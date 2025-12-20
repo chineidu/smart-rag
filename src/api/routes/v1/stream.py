@@ -4,8 +4,6 @@ import json
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Request
-
-# from src.schemas.routes.streamer_schema import StreamingResponse
 from fastapi.responses import StreamingResponse
 from kombu.exceptions import OperationalError
 
@@ -14,7 +12,7 @@ from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
 from src.celery_app.tasks.prediction import generate_streaming_response_task
 from src.config import app_config, app_settings
-from src.schemas.routes.streamer_schema import SessionResponse
+from src.schemas.routes.streamer_schema import SessionResponse, UserSessions
 from src.schemas.types import EventsType, RoleType
 from src.stream_manager import StreamSessionManager
 
@@ -61,7 +59,7 @@ async def create_session(
         + (f" for user {user_id}" if user_id else "")
     )
     return SessionResponse(
-        task_id="NULL", session_id=session_id, message="Session created successfully"
+        task_id=None, session_id=session_id, message="Session created successfully"
     )
 
 
@@ -70,7 +68,7 @@ async def create_session(
 async def list_user_sessions(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     user_id: str,
-) -> dict:
+) -> UserSessions:
     """List all sessions for a user with metadata.
 
     Parameters
@@ -80,12 +78,12 @@ async def list_user_sessions(
 
     Returns
     -------
-    dict
+    UserSessions
         List of session objects with metadata sorted by creation time (newest first).
     """
     sessions = await session_manager.aget_user_sessions(user_id=user_id)
     logger.info(f"Retrieved {len(sessions)} sessions for user {user_id}")
-    return {"user_id": user_id, "sessions": sessions, "count": len(sessions)}
+    return UserSessions(user_id=user_id, sessions=sessions, count=len(sessions))
 
 
 @router.post("/sessions/{session_id}/query")
@@ -120,7 +118,7 @@ async def submit_query(
             return SessionResponse(
                 task_id=task.id,
                 session_id=session_id,
-                message=f"Published to {target_queue}",
+                message=f"Published to {target_queue} queue successfully.",
             )
         except OperationalError:
             logger.error(f"Failed to publish task to queue {target_queue}")
@@ -133,7 +131,8 @@ async def submit_query(
         logger.error(f"Celery broker connection failed: {e}")
         raise HTTPException(
             status_code=503,
-            detail="Task queue service is unavailable. Please ensure the message broker (Redis/RabbitMQ) is running.",
+            detail="Task queue service is unavailable. Please ensure the message broker "
+            "(Redis/RabbitMQ) is running.",
         ) from e
 
 

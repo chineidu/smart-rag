@@ -1,12 +1,13 @@
 import os
 from pathlib import Path
-from typing import Literal
 from urllib.parse import quote
 
 from dotenv import load_dotenv  # type: ignore
 from pydantic import SecretStr  # type: ignore
 from pydantic.functional_validators import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict  # type: ignore
+
+from src.schemas.types import LoggingLevelEnum, PoolType
 
 
 class BaseSettingsConfig(BaseSettings):
@@ -50,10 +51,12 @@ class Settings(BaseSettingsConfig):
     REDIS_DB: int = 0
 
     # ===== CELERY =====
-    CELERY_QUEUES: str = "low_priority_ml,normal_priority_ml,high_priority_ml"
-    CELERY_CONCURRENCY: int = 2
-    CELERY_POOL: Literal["prefork", "threads"] = "prefork"  # prefork | threads
-    CELERY_LOGLEVEL: Literal["info", "warning", "error", "debug"] = "info"
+    C_FORCE_ROOT: int = 1  # Suppress root user warning
+    CELERY_OPTIMIZATION: str = "fair"  # Optimize Celery performance
+    CELERY_CONCURRENCY: str = "1"  # Number of concurrent worker processes/threads
+    CELERY_POOL: PoolType = PoolType.THREADS  # Worker pool type
+    CELERY_QUEUES_NORMAL: str = "normal_priority_ml,notifications,periodic"
+    CELERY_LOGLEVEL: LoggingLevelEnum = LoggingLevelEnum.WARNING
     CELERY_HOSTNAME_SUFFIX: str = ""
 
     # ===== REMOTE INFERENCE =====

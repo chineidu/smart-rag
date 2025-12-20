@@ -198,3 +198,13 @@ class PoolType(StrEnum):
 
     PREFORK = "prefork"
     THREADS = "threads"
+
+
+class LoggingLevelEnum(StrEnum):
+    """Enum for logging levels."""
+
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"

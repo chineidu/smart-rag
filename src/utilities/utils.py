@@ -69,7 +69,7 @@ def merge_dicts(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
 @traceable
 async def get_structured_output(
     messages: list[dict[str, Any]],
-    model: RemoteModel,
+    model: RemoteModel | None,
     schema: type[T],
 ) -> BaseModel:
     """
@@ -1162,7 +1162,7 @@ async def rerank_retrieved_documents(state: "State") -> dict[str, Any]:
     return {"reranked_documents": reranked_docs}
 
 
-def format_generated_content(node: str, data: dict[str, Any]) -> str:
+def format_generated_content(node: str, data: dict[str, Any]) -> str | None:
     """Format the generated content based on the node type.
 
     Parameters
@@ -1174,7 +1174,7 @@ def format_generated_content(node: str, data: dict[str, Any]) -> str:
 
     Returns
     -------
-    str
+    str | None
         A formatted string representation of the generated content.
     """
     try:
@@ -1229,7 +1229,7 @@ def format_generated_content(node: str, data: dict[str, Any]) -> str:
     except KeyError as e:
         print(f"KeyError in format_generated_content: {e}")
 
-    return "NULL"  # Default return if no conditions met
+    return None  # Default return if no conditions met
 
 
 def log_system_info() -> None:

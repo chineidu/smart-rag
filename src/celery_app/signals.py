@@ -132,17 +132,31 @@ def on_worker_shutdown(sender: Any | None = None, **kwargs: Any) -> None:  # noq
 # ===========================================
 @task_prerun.connect
 def task_prerun_handler(
-    task_id: str, task: Any, args: Any, kwargs: Any, **extra: Any
-) -> None:  # noqa: ANN001, ARG001
-    """Log when task starts"""
+    task_id: str,
+    task: Any,
+    args: Any,
+    kwargs: Any,
+    **extra: Any,  # noqa: ARG001
+) -> None:
+    """Log when task starts. Useful for tracking long-running tasks.
+
+    Note
+    ----
+    kwargs are accessible if passed during task invocation using apply_async.
+    """
     session_id = kwargs.get("session_id", "unknown")
     logger.info(f"Task {task.name} started: {task_id} (session: {session_id})")
 
 
 @task_postrun.connect
 def task_postrun_handler(
-    task_id: str, task: Any, args: Any, kwargs: Any, retval: Any, **extra: Any
-) -> None:  # noqa: ARG001
+    task_id: str,
+    task: Any,
+    args: Any,
+    kwargs: Any,
+    retval: Any,
+    **extra: Any,  # noqa: ARG001
+) -> None:
     """Log when task completes"""
     session_id = kwargs.get("session_id", "unknown")
     logger.info(f"Task {task.name} finished: {task_id} (session: {session_id})")

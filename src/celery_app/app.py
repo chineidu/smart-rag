@@ -57,24 +57,13 @@ def create_celery_app() -> Celery:
         ),
     )
 
-    # Convert the beat_schedule to a dictionary
-    beat_config_dict: dict[str, dict[str, Any]] = dict(
-        asdict(app_config.celery_config.beat_config.beat_schedule).items()
+    # Convert to dictionary
+    beat_config_dict: dict[str, dict[str, Any]] = asdict(
+        app_config.celery_config.beat_config
     )
-
-    # Add the health_check
-    beat_config_dict["health_check"] = asdict(
-        app_config.celery_config.beat_config.health_check
+    task_routes: dict[str, str] = asdict(app_config.celery_config).get(
+        "task_routes", {}
     )
-
-    # Configuration
-    # Normalize task_routes into plain dicts so Celery can iterate over them
-    raw_task_routes = app_config.celery_config.task_routes or {}
-    # Convert to dict with queue names only. e.g. {"task.name": {"queue": "queue_name"} }
-    normalized_task_routes: dict[str, Any] = {
-        k: ({"queue": v.queue} if hasattr(v, "queue") else v)
-        for k, v in raw_task_routes.items()
-    }
 
     celery.conf.update(
         # DB result backend config
@@ -98,9 +87,9 @@ def create_celery_app() -> Celery:
         timezone=app_config.celery_config.task_config.timezone,
         enable_utc=app_config.celery_config.task_config.enable_utc,
         # Task routing
-        task_routes=normalized_task_routes,
+        task_routes=task_routes,
         # Beat schedule
-        beat_schedule=beat_config_dict,  # dict is required!
+        beat_schedule=beat_config_dict.get("beat_schedule", {}),  # dict is required!
         # Worker config
         worker_prefetch_multiplier=app_config.celery_config.worker_config.worker_prefetch_multiplier,
         worker_max_tasks_per_child=app_config.celery_config.worker_config.worker_max_tasks_per_child,

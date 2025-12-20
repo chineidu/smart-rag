@@ -38,6 +38,8 @@ async def avector_search_tool(
     list[Document]
         A list of retrieved Document objects.
     """
+    vectorstore = None
+
     _vs_setup = get_vectorstore_setup()
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
@@ -108,6 +110,8 @@ async def ahybrid_search_tool(
     The constant ``K`` (set to 61) controls the steepness of the rank
     discount curve and is taken from the original RRF paper.
     """
+    vectorstore = None
+    bm25_dict: dict[str, Any] | None = None
     K: int = 61  # Default for RRF
 
     _vs_setup = get_vectorstore_setup()

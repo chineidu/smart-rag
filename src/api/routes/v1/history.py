@@ -47,10 +47,10 @@ async def get_chat_history(
         state = await graph.aget_state(config)
 
         if not state or not state.values or not state.values.get("messages"):
-            logger.error(f"Checkpoint '{session_id}' not found or has no messages")
+            logger.error(f"Session '{session_id}' not found or has no messages")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Checkpoint '{session_id}' not found or has no messages",
+                detail=f"Session '{session_id}' not found or has no messages",
             )
 
         # Extract messages from state

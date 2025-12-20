@@ -23,11 +23,20 @@ class QueryRequestSchema(BaseSchema):
 
 @dataclass(slots=True, kw_only=True)
 class SessionResponse:
-    task_id: str = field(metadata={"description": "The unique task identifier."})
+    task_id: str | None = field(metadata={"description": "The unique task identifier."})
     session_id: str | None = field(
         metadata={"description": "The unique session identifier."}
     )
     message: str = field(metadata={"description": "Optional message."})
+
+
+@dataclass(slots=True, kw_only=True)
+class UserSessions:
+    user_id: str = field(metadata={"description": "The unique user identifier."})
+    sessions: list[dict] = field(
+        metadata={"description": "List of sessions with metadata."}
+    )
+    count: int = field(metadata={"description": "Total number of sessions."})
 
 
 @dataclass(slots=True, kw_only=True)

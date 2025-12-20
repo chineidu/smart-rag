@@ -24,7 +24,10 @@ RECURSION_LIMIT = app_config.custom_config.recursion_limit
 # meaning that we need to use `self` and this provides additional functionality like retries, etc
 @celery_app.task(bind=True, base=CallbackTask)
 def generate_streaming_response_task(
-    self, session_id: str, message: str, user_id: str
+    self,
+    session_id: str,
+    message: str,
+    user_id: str,  # noqa: ANN001
 ) -> dict[str, Any]:  # noqa: ANN001
     """Task for generating and streaming response for a given query.
 

@@ -80,7 +80,8 @@ celery-run:
 
 celery-run-supervisord:
 	@echo "🚀 Starting Celery worker with Supervisord..."
-	supervisord -c docker/supervisord.conf
+	# Load environment variables from .env
+	@set -a; [ -f .env ] && . ./.env; set +a; supervisord -c docker/supervisord.conf
 
 celery-supervisord-status:
 	@echo "🔍 Checking status of Celery worker with Supervisord..."
@@ -157,7 +158,7 @@ test-verbose:
 # ===============================
 type-check:
 	@echo "🔍 Running type checks..."
-	uv run ty check src
+	uv run pyrefly check src
 
 lint:
 	@echo "🔍 Running linter..."
