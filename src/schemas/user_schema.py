@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from pydantic import ConfigDict, Field  # type: ignore
+from pydantic.types import SecretStr
 
 from src.schemas.base import BaseSchema
 from src.schemas.types import RoleType
@@ -38,6 +39,25 @@ class UserWithHashSchema(UserSchema):
     """User schema with password hash."""
 
     hashed_password: str
+
+
+class UserCreateSchema(UserSchema):
+    """User creation schema."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "firstname": "John",
+                "lastname": "Doe",
+                "username": "johndoe",
+                "email": "john.doe@example.com",
+                "password": "<your_password_here>",
+            }
+        }
+    )
+    password: SecretStr = Field(
+        ..., description="User's password", min_length=8, max_length=128
+    )
 
 
 class RoleSchema(BaseSchema):

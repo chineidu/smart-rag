@@ -8,13 +8,13 @@ from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache, get_graph_manager
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
-from src.config import app_settings
+from src.config import app_config
 from src.graph import GraphManager
 from src.schemas.routes.history_schema import ChatHistorySchema
 
 logger = create_logger(name="status_route")
 router = APIRouter(tags=["history"], default_response_class=MsgSpecJSONResponse)
-LIMIT_VALUE: int = app_settings.LIMIT_VALUE
+LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 
 
 @router.get("/chat_history", status_code=status.HTTP_200_OK)
@@ -74,7 +74,7 @@ async def get_chat_history(
             session_id=session_id,
             messages=formatted_messages,
             message_count=len(formatted_messages),
-        ).model_dump(by_alias=True)
+        )
 
     except HTTPException:
         logger.error("HTTP error occurred")

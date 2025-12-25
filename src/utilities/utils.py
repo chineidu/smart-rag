@@ -742,7 +742,7 @@ def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
         # Combine items
         combined = ModelList[T](items=list(existing) + list(new))  # type: ignore
         # Deduplicate and return
-        return dedupe_model_list(combined).items
+        return dedupe_model_list(combined).items  # type: ignore
 
     # Case 2: Both are list of dicts or BaseModels - merge as before
     if isinstance(existing, list) and isinstance(new, list):

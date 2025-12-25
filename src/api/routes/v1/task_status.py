@@ -9,12 +9,12 @@ from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
 from src.celery_app.app import celery_app
-from src.config import app_settings
+from src.config import app_config
 from src.schemas.routes.task_status import TaskStatusResponse
 from src.schemas.types import TaskStatusType
 
 logger = create_logger(name="task-status")
-LIMIT_VALUE: int = app_settings.LIMIT_VALUE
+LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 
 router = APIRouter(tags=["task-status"], default_response_class=MsgSpecJSONResponse)
 

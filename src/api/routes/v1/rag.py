@@ -12,14 +12,14 @@ from src import create_logger
 from src.api.core.dependencies import get_graph_manager
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
-from src.config import app_config, app_settings
+from src.config import app_config
 from src.graph import GraphManager
 from src.utilities.utils import format_generated_content
 
 logger = create_logger("streaming_response")
 router = APIRouter(tags=["streaming_old"], default_response_class=MsgSpecJSONResponse)
 RECURSION_LIMIT = app_config.custom_config.recursion_limit
-LIMIT_VALUE: int = app_settings.LIMIT_VALUE
+LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 
 
 async def generate_streaming_response(

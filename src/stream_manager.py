@@ -16,7 +16,8 @@ logger = create_logger("stream_manager")
 
 
 class StreamSessionManager:
-    """Manages streaming sessions using Redis streams.
+    """Manages streaming sessions using Redis streams. Redis streams are used to store and
+    retrieve streaming events associated with unique session IDs.
 
     Methods
     -------
@@ -131,7 +132,8 @@ class StreamSessionManager:
         str
             The unique identifier for the newly created session.
         """
-        session_id: str = session_id if session_id is not None else str(uuid4())
+        # Generate session ID if not provided
+        session_id: str = session_id if session_id is not None else str(uuid4())  # type: ignore
         redis = await self._aget_redis()
         # Session metadata
         metadata: dict[str, Any] = {
@@ -251,7 +253,7 @@ class StreamSessionManager:
             # Add message to stream
             message_id: str = await redis.xadd(
                 stream_key,
-                message,
+                message,  # type: ignore
                 maxlen=app_config.stream_config.max_stream_length,
                 approximate=True,
             )

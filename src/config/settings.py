@@ -87,14 +87,18 @@ class Settings(BaseSettingsConfig):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: SecretStr = SecretStr("your_api_key")
 
-    # ======= Server settings =======
+    # ===== APPLICATION SETTINGS =====
     ENVIRONMENT: str = "development"  # development | production
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     WORKERS: int = 2
     RELOAD: bool = False
     DEBUG: bool = False
-    LIMIT_VALUE: int = 40  # Rate limiting value
+
+    # ===== API AUTHENTICATION =====
+    SECRET_KEY: SecretStr = SecretStr("your_secret_key")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     @field_validator(
         "PORT", "POSTGRES_PORT", "REDIS_PORT", "QDRANT_PORT", mode="before"

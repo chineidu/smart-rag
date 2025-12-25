@@ -3,15 +3,16 @@
 import json
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from kombu.exceptions import OperationalError
 
 from src import create_logger
+from src.api.core.exceptions import HTTPError, StreamingError, UnexpectedError
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
 from src.celery_app.tasks.prediction import generate_streaming_response_task
-from src.config import app_config, app_settings
+from src.config import app_config
 from src.schemas.routes.streamer_schema import SessionResponse, UserSessions
 from src.schemas.types import EventsType, RoleType
 from src.stream_manager import StreamSessionManager
@@ -19,7 +20,7 @@ from src.stream_manager import StreamSessionManager
 logger = create_logger("streaming_response")
 router = APIRouter(tags=["streaming"], default_response_class=MsgSpecJSONResponse)
 RECURSION_LIMIT = app_config.custom_config.recursion_limit
-LIMIT_VALUE: int = app_settings.LIMIT_VALUE
+LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 
 session_manager = StreamSessionManager()
 
@@ -53,14 +54,18 @@ async def create_session(
     user_id : str | None, optional
         The user ID to associate with this session for conversation history tracking.
     """
-    session_id: str = await session_manager.acreate_session(user_id=user_id)
-    logger.info(
-        f"Created new session with ID: {session_id}"
-        + (f" for user {user_id}" if user_id else "")
-    )
-    return SessionResponse(
-        task_id=None, session_id=session_id, message="Session created successfully"
-    )
+    try:
+        session_id: str = await session_manager.acreate_session(user_id=user_id)
+        logger.info(
+            f"Created new session with ID: {session_id}"
+            + (f" for user {user_id}" if user_id else "")
+        )
+        return SessionResponse(
+            task_id=None, session_id=session_id, message="Session created successfully"
+        )
+    except Exception as e:
+        logger.error(f"Error creating session: {e}", exc_info=True)
+        raise UnexpectedError("Error occurred while creating the session.") from e
 
 
 @router.get("/users/{user_id}/sessions")
@@ -81,9 +86,14 @@ async def list_user_sessions(
     UserSessions
         List of session objects with metadata sorted by creation time (newest first).
     """
-    sessions = await session_manager.aget_user_sessions(user_id=user_id)
-    logger.info(f"Retrieved {len(sessions)} sessions for user {user_id}")
-    return UserSessions(user_id=user_id, sessions=sessions, count=len(sessions))
+    try:
+        sessions = await session_manager.aget_user_sessions(user_id=user_id)
+        logger.info(f"Retrieved {len(sessions)} sessions for user {user_id}")
+        return UserSessions(user_id=user_id, sessions=sessions, count=len(sessions))
+
+    except Exception as e:
+        logger.error(f"Error listing user sessions: {e}", exc_info=True)
+        raise UnexpectedError("Error occurred while listing user the sessions.") from e
 
 
 @router.post("/sessions/{session_id}/query")
@@ -106,7 +116,7 @@ async def submit_query(
             target_queue = app_config.queues_config.low_priority_ml
 
         try:
-            task = generate_streaming_response_task.apply_async(
+            task = generate_streaming_response_task.apply_async(  # type: ignore
                 kwargs={
                     "message": message,
                     "session_id": session_id,
@@ -122,17 +132,14 @@ async def submit_query(
             )
         except OperationalError:
             logger.error(f"Failed to publish task to queue {target_queue}")
-            raise HTTPException(
-                status_code=503,
-                detail="Task queue service is unavailable. Please ensure the message broker is running.",
+            raise HTTPError(
+                details="Task queue service is unavailable. Please ensure the message broker is running.",
             ) from None
 
     except OperationalError as e:
         logger.error(f"Celery broker connection failed: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail="Task queue service is unavailable. Please ensure the message broker "
-            "(Redis/RabbitMQ) is running.",
+        raise HTTPError(
+            details="Task queue service is unavailable. Please ensure the message broker is running.",
         ) from e
 
 
@@ -211,24 +218,28 @@ async def chat_stream(
         - "$": Stream only new events (continue conversation)
         - "{message_id}": Start from a specific message ID
     """
-    # Validate session exists (only stream existing sessions)
-    if not await session_manager.asession_exists(session_id=session_id):
-        logger.warning(f"Stream requested for unknown session {session_id!r}")
-        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        # Validate session exists (only stream existing sessions)
+        if not await session_manager.asession_exists(session_id=session_id):
+            logger.warning(f"Stream requested for unknown session {session_id!r}")
+            raise HTTPError(details="Session not found")
 
-    # Register connection and stream
-    session_manager.add_connection(session_id)
+        # Register connection and stream
+        session_manager.add_connection(session_id)
 
-    return StreamingResponse(
-        content=events_generator(
-            request,
-            session_id=session_id,
-            last_id=last_id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        },
-    )
+        return StreamingResponse(
+            content=events_generator(
+                request,
+                session_id=session_id,
+                last_id=last_id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error streaming to session {session_id}: {e}", exc_info=True)
+        raise StreamingError(details=f"Error streaming to session {session_id}") from e

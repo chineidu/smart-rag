@@ -3,7 +3,7 @@ Database initialization utilities.
 """
 
 from src import create_logger
-from src.db.crud import create_role
+from src.db.crud import CRUDFactory
 from src.db.models import Base, get_db_pool
 from src.schemas.types import RoleType
 from src.schemas.user_schema import RoleSchema
@@ -30,9 +30,10 @@ def init_db() -> None:
     ]
 
     with db_pool.get_session() as session:
+        crud_factory = CRUDFactory(db=session)
         try:
             for role, desc in zip(RoleType, descriptions):
-                create_role(db=session, role=RoleSchema(name=role, description=desc))
+                crud_factory.create_role(role=RoleSchema(name=role, description=desc))
             logger.info("Default roles created successfully")
         except Exception as e:
             logger.error(f"Error creating default roles: {e}")

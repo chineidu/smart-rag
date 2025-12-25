@@ -114,6 +114,7 @@ config:
     version: v1.0.0
     status: healthy
     prefix: /api/v1
+    auth_prefix: "${.prefix}/auth"
     middleware:
       cors:
         allow_origins:
@@ -123,3 +124,7 @@ config:
           - "*"
         allow_headers:
           - "*"
+    ratelimit:
+      default_rate: 50
+      burst_rate: 100
+      login_rate: 10

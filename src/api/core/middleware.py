@@ -6,18 +6,18 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
 from src.api.core.exceptions import (
-    BaseAPIError,
-    CustomTimeoutError,
-    InvalidInputError,
-    PredictionError,
+    HTTPError,
     ResourcesNotFoundError,
+    StreamingError,
+    UnauthorizedError,
+    UnexpectedError,
 )
+from src.api.core.reponses import MsgSpecJSONResponse
 from src.schemas.types import ErrorCodeEnum
 
 logger = create_logger(name="middleware")
@@ -77,20 +77,22 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             response: Response = await call_next(request)
             return response
 
-        except HTTPException as exc:
-            return JSONResponse(
+        except HTTPError as exc:
+            return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 content={
                     "status": "error",
-                    "error": {"message": exc.detail, "code": ErrorCodeEnum.HTTP_ERROR},
+                    "error": {"message": exc.message, "code": ErrorCodeEnum.HTTP_ERROR},
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
             )
 
-        except InvalidInputError as exc:
-            return JSONResponse(
+        except UnauthorizedError as exc:
+            headers: dict[Any, Any] | Any = getattr(exc, "headers", {})
+            return MsgSpecJSONResponse(
                 status_code=exc.status_code,
+                headers=headers,
                 content={
                     "status": "error",
                     "error": {"message": exc.message, "code": exc.error_code},
@@ -100,7 +102,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             )
 
         except ResourcesNotFoundError as exc:
-            return JSONResponse(
+            return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 content={
                     "status": "error",
@@ -110,8 +112,8 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        except PredictionError as exc:
-            return JSONResponse(
+        except StreamingError as exc:
+            return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 content={
                     "status": "error",
@@ -120,25 +122,13 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "path": str(request.url.path),
                 },
             )
-        except CustomTimeoutError as exc:
-            return JSONResponse(
+
+        except UnexpectedError as exc:
+            return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 content={
                     "status": "error",
                     "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-            )
-        except BaseAPIError as exc:
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {
-                        "message": "An unexpected error occurred.",
-                        "code": exc.error_code,
-                    },
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
@@ -146,7 +136,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 
         except Exception as exc:
             logger.exception(f"Unhandled exception in middleware: {exc}")
-            return JSONResponse(
+            return MsgSpecJSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "status": "error",

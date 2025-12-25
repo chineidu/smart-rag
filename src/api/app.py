@@ -13,7 +13,7 @@ from src.api.core.middleware import (
     LoggingMiddleware,
     RequestIDMiddleware,
 )
-from src.api.routes import health, history, rag, retrievals, stream, task_status
+from src.api.routes import auth, health, history, rag, retrievals, stream, task_status
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
@@ -31,6 +31,7 @@ def create_application() -> FastAPI:
         A configured FastAPI application instance.
     """
     prefix: str = app_config.api_config.prefix
+    auth_prefix: str = app_config.api_config.auth_prefix
 
     app = FastAPI(
         title=app_config.api_config.title,
@@ -56,6 +57,7 @@ def create_application() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)  # type: ignore
 
     # Include routers
+    app.include_router(auth.router, prefix=auth_prefix)
     app.include_router(health.router, prefix=prefix)
     app.include_router(history.router, prefix=prefix)
     app.include_router(rag.router, prefix=prefix)
@@ -64,7 +66,7 @@ def create_application() -> FastAPI:
     app.include_router(task_status.router, prefix=prefix)
 
     # Add exception handlers
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
     return app
 

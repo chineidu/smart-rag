@@ -409,6 +409,17 @@ class Middleware:
 
 
 @dataclass(slots=True, kw_only=True)
+class Ratelimit:
+    """Ratelimit configuration class."""
+
+    default_rate: int = field(
+        metadata={"description": "Default rate limit (e.g., 50)."}
+    )
+    burst_rate: int = field(metadata={"description": "Burst rate limit (e.g., 100)."})
+    login_rate: int = field(metadata={"description": "Login rate limit (e.g., 10)."})
+
+
+@dataclass(slots=True, kw_only=True)
 class LLMModelConfig:
     """Configuration for models."""
 
@@ -436,9 +447,13 @@ class APIConfig:
     version: str = field(metadata={"description": "The version of the API."})
     status: str = field(metadata={"description": "The current status of the API."})
     prefix: str = field(metadata={"description": "The prefix for the API routes."})
+    auth_prefix: str = field(
+        metadata={"description": "The prefix for the authentication routes."}
+    )
     middleware: Middleware = field(
         metadata={"description": "Middleware configuration."}
     )
+    ratelimit: Ratelimit = field(metadata={"description": "Ratelimit configuration."})
 
 
 class AppConfig(BaseSchema):

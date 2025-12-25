@@ -21,15 +21,30 @@ class BaseAPIError(Exception):
         super().__init__(message)
 
 
-class InvalidInputError(BaseAPIError):
-    """Exception raised for invalid input data."""
+class UnauthorizedError(BaseAPIError):
+    """Exception raised for unauthorized access."""
 
     def __init__(self, details: str) -> None:
-        message = f"Invalid input data: {details}"
+        message = f"Unauthorized access: {details}"
+        self.headers = {"WWW-Authenticate": "Bearer"}
         super().__init__(
             message,
-            status_code=status.HTTP_400_BAD_REQUEST,
-            error_code=ErrorCodeEnum.INVALID_INPUT,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            error_code=ErrorCodeEnum.UNAUTHORIZED,
+        )
+
+
+class HTTPError(BaseAPIError):
+    """Exception raised for HTTP error."""
+
+    def __init__(
+        self, details: str, status_code: int = status.HTTP_503_SERVICE_UNAVAILABLE
+    ) -> None:
+        message = f"HTTP error: {details}"
+        super().__init__(
+            message,
+            status_code=status_code,
+            error_code=ErrorCodeEnum.HTTP_ERROR,
         )
 
 
@@ -61,25 +76,37 @@ class ResourcesNotFoundError(BaseAPIError):
         )
 
 
-class PredictionError(BaseAPIError):
-    """Exception raised when a prediction fails."""
+class StreamingError(BaseAPIError):
+    """Exception raised when streaming fails."""
 
     def __init__(self, details: str) -> None:
-        message = f"Prediction error: {details}"
+        message = f"Streaming error: {details}"
         super().__init__(
             message,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            error_code=ErrorCodeEnum.PREDICTION_ERROR,
+            error_code=ErrorCodeEnum.STREAMING_ERROR,
         )
 
 
-class CustomTimeoutError(BaseAPIError):
-    """Exception raised when a request times out."""
+class NotFoundError(BaseAPIError):
+    """Exception raised when a resource is not found."""
 
-    def __init__(self, details: str) -> None:
-        message = f"Request timeout: {details}"
+    def __init__(self, resource_id: str) -> None:
+        message = f"Resource with ID {resource_id!r} not found."
         super().__init__(
             message,
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            error_code=ErrorCodeEnum.TIMEOUT_ERROR,
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code=ErrorCodeEnum.RESOURCES_NOT_FOUND,
+        )
+
+
+class UnexpectedError(BaseAPIError):
+    """Exception raised for unexpected errors."""
+
+    def __init__(self, details: str) -> None:
+        message = f"An unexpected error occurred: {details}"
+        super().__init__(
+            message,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code=ErrorCodeEnum.UNEXPECTED_ERROR,
         )

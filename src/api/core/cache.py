@@ -11,6 +11,7 @@ from typing import Any, Callable, Coroutine
 from aiocache import Cache
 from aiocache.serializers import JsonSerializer
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 
 from src import create_logger
 from src.config import app_settings
@@ -47,7 +48,7 @@ def setup_cache() -> Cache:
         if db != 0:
             cache_kwargs["db"] = db
 
-        return Cache(Cache.REDIS, **cache_kwargs)
+        return Cache(Cache.REDIS, **cache_kwargs)  # type: ignore
 
     except Exception as e:
         warnings.warn(
@@ -55,7 +56,7 @@ def setup_cache() -> Cache:
             stacklevel=2,
         )
         # Fallback to in-memory cache
-        return Cache(Cache.MEMORY, serializer=JsonSerializer(), namespace="main")
+        return Cache(Cache.MEMORY, serializer=JsonSerializer(), namespace="main")  # type: ignore
 
 
 class CacheSetup:
@@ -97,8 +98,8 @@ class CacheSetup:
                 cache_kwargs["db"] = db
 
             self._initialized = True
-            self._cache = Cache(Cache.REDIS, **cache_kwargs)
-            return self._cache
+            self._cache = Cache(Cache.REDIS, **cache_kwargs)  # type: ignore
+            return self._cache  # type: ignore
 
         except Exception as e:
             warnings.warn(
@@ -109,8 +110,8 @@ class CacheSetup:
             self._initialized = True
             self._cache = Cache(
                 Cache.MEMORY, serializer=JsonSerializer(), namespace="main"
-            )
-            return self._cache
+            )  # type: ignore
+            return self._cache  # type: ignore
 
     def is_ready(self) -> bool:
         """Check if the cache setup is ready for use.
@@ -167,7 +168,7 @@ def cached(
             )
 
             # Try to get from cache
-            cached_response = await cache.get(cache_key)
+            cached_response = await cache.get(cache_key)  # type: ignore
             if cached_response is not None:
                 logger.info(f"Cache hit for key: {cache_key}")
                 # Some backends/serializers may return a JSON string. Attempt to
@@ -183,8 +184,14 @@ def cached(
             # Cache miss - call the actual function
             response = await func(*args, **kwargs)  # type: ignore
 
-            # Store in cache
-            await cache.set(cache_key, response, ttl=ttl)
+            try:
+                # Serialize the response to a JSON-compatible format
+                serialized = jsonable_encoder(response)
+                # Store in cache
+                await cache.set(cache_key, serialized, ttl=ttl)  # type: ignore
+
+            except Exception as e:
+                logger.warning(f"Skipping cache for key {cache_key}: {e}")
 
             return response
 

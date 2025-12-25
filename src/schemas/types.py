@@ -55,10 +55,9 @@ class ErrorCodeEnum(StrEnum):
     HTTP_ERROR = "http_error"
     INTERNAL_SERVER_ERROR = "internal_server_error"
     INVALID_INPUT = "invalid_input"
-    MODEL_NOT_FOUND = "model_not_found"
-    PREDICTION_ERROR = "prediction_error"
     RESOURCES_NOT_FOUND = "resources_not_found"
-    TIMEOUT_ERROR = "timeout_error"
+    STREAMING_ERROR = "streaming_error"
+    UNAUTHORIZED = "unauthorized"
     UNEXPECTED_ERROR = "unexpected_error"
 
 

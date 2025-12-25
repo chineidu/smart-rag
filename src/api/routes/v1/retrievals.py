@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from src import create_logger
 from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache
-from src.api.core.exceptions import BaseAPIError
+from src.api.core.exceptions import BaseAPIError, UnexpectedError
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
-from src.config.settings import app_settings
+from src.config import app_config
 from src.schemas.types import SectionNamesType
 from src.utilities.tools.tools import (
     ahybrid_search_tool,
@@ -21,7 +21,7 @@ from src.utilities.tools.tools import (
 )
 
 logger = create_logger(name="retrieval")
-LIMIT_VALUE: int = app_settings.LIMIT_VALUE
+LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 router = APIRouter(
     tags=["retrieval"],
     default_response_class=MsgSpecJSONResponse,
@@ -51,8 +51,10 @@ async def keyword_search(
 
     except BaseAPIError as e:
         raise e
-    except Exception as e:
-        raise e
+    except Exception:
+        raise UnexpectedError(
+            details="Unexpected error occurred while performing keyword search."
+        ) from None
 
 
 @router.get("/retrievals/semantic", status_code=status.HTTP_200_OK)
@@ -82,8 +84,10 @@ async def semantic_search(
 
     except BaseAPIError as e:
         raise e
-    except Exception as e:
-        raise e
+    except Exception:
+        raise UnexpectedError(
+            details="Unexpected error occurred while performing semantic search."
+        ) from None
 
 
 @router.get("/retrievals/hybrid", status_code=status.HTTP_200_OK)
@@ -113,5 +117,7 @@ async def hybrid_search(
 
     except BaseAPIError as e:
         raise e
-    except Exception as e:
-        raise e
+    except Exception:
+        raise UnexpectedError(
+            details="Unexpected error occurred while performing hybrid search."
+        ) from None
