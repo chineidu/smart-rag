@@ -25,9 +25,9 @@ class Step(BaseModel):
         "the tool is 'vector_store'. e.g., 'ITEM 1A. RISK FACTORS'.",
     )
 
-    @field_validator("tool", mode="before")
+    @field_validator("tool", mode="after")
     @classmethod
-    def validate_tool(cls, v: Any) -> ToolsType:
+    def validate_tool(cls, v: Any) -> str:
         """Extract the value form the enum."""
         if isinstance(v, ToolsType):
             return v.value
@@ -55,7 +55,7 @@ class ValidateQuery(BaseModel):
 
     @field_validator("next_action", mode="after")
     @classmethod
-    def validate_next_action(cls, v: Any) -> NextAction:
+    def validate_next_action(cls, v: Any) -> str:
         """Extract the value form the enum."""
         if isinstance(v, NextAction):
             return v.value
@@ -68,9 +68,9 @@ class RetrieverMethod(BaseModel):
     )
     rationale: str = Field(description="The brief reasoning behind the decision.")
 
-    @field_validator("method", mode="before")
+    @field_validator("method", mode="after")
     @classmethod
-    def validate_method(cls, v: Any) -> RetrieverMethodType:
+    def validate_method(cls, v: Any) -> str:
         """Extract the value form the enum."""
         if isinstance(v, RetrieverMethodType):
             return v.value
@@ -81,9 +81,9 @@ class Decision(BaseModel):
     next_action: NextAction = Field(..., description="The next action to take.")
     rationale: str = Field(description="The brief reasoning behind the decision.")
 
-    @field_validator("next_action", mode="before")
+    @field_validator("next_action", mode="after")
     @classmethod
-    def validate_next_action(cls, v: Any) -> NextAction:
+    def validate_next_action(cls, v: Any) -> str:
         """Extract the value form the enum."""
         if isinstance(v, NextAction):
             return v.value

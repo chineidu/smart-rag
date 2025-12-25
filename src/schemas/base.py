@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Generic, Iterator
+from typing import Annotated, Any, Generic
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict  # type: ignore
 from pydantic.alias_generators import to_camel
@@ -86,10 +86,6 @@ class ModelList(BaseModel, Generic[T]):
     def __getitem__(self, index: int) -> T:
         """Get item by index."""
         return self.items[index]
-
-    def __iter__(self) -> Iterator[T]:
-        """Make the container iterable."""
-        return iter(self.items)
 
     def append(self, item: T) -> None:
         """Add an item to the list."""

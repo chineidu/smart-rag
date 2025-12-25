@@ -178,7 +178,9 @@ async def generate_plan_node(
 
     # Extract memory if it exists
     if user_preferences:
-        user_preferences_content: str = user_preferences.value.get(namespace_key)
+        user_preferences_content: str = (
+            user_preferences.value.get(namespace_key) or "No memory found."
+        )
     else:
         user_preferences_content = "No memory found."
 
@@ -192,6 +194,7 @@ async def generate_plan_node(
         messages=[SystemMessage(content=sys_msg), HumanMessage(content=user_query)]
     )
     response = await get_structured_output(messages=messages, model=None, schema=Plan)
+    response = cast(Plan, response)
     plan_formatted: str = f"Multi-steps Plan:\n{format_plan(plan=response)}"
     log_msg: str = f"Number of steps: {len(response.steps)}..."
     if is_replanning:
@@ -395,9 +398,10 @@ async def final_answer_node(state: State, config: RunnableConfig) -> dict[str, A
         )
         # Use reranked_documents which exists in step_state
         for doc in step.get("reranked_documents", []):  # type: ignore
-            source: str = (  # type: ignore
+            source: str = (
                 f"Filename: {doc.metadata.get('source')} | Section: {doc.metadata.get('section')}"
                 or doc.metadata.get("url")
+                or "Unknown"
             )
             final_context += f"Source: {source}\nContent: {doc.page_content}\n\n"
 
@@ -528,12 +532,12 @@ async def update_lt_memory_node(
         if summary:
             context.append(SystemMessage(content=f"Summary: {summary}"))
         # Add recent messages
-        context.extend(state["messages"])
+        context.extend(state["messages"])  # type: ignore
 
         try:
             messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
                 context
-            )
+            )  # type: ignore
             new_memory: StructuredMemoryResponse = await get_structured_output(  # type: ignore
                 messages=messages,
                 model=None,

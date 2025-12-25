@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 logger = create_logger(name="celery_app")
 
-__all__ = ["BaseTask", "celery_app"]
+__all__ = ["BaseTask"]
 # Import signals to register them (this ensures signal handlers are connected)
 from src.celery_app import signals  # noqa: E402, F401
 
@@ -40,7 +40,8 @@ class BaseTask(Task):
     """
 
     autoretry_for = (Exception,)
-    throws = (Exception,)  # Log full traceback on retry
+    # Log full traceback on retry
+    throws = (Exception,)  # type: ignore
     default_retry_delay = 30  # 30 seconds
     max_retries = 5
 
@@ -99,7 +100,7 @@ class CallbackTask(BaseTask):
         return cls._stream_session_manager
 
     @classmethod
-    async def aget_graph_builder(cls) -> StreamSessionManager:
+    async def aget_graph_builder(cls) -> GraphManager:
         """Get or create the GraphManager instance (per-process singleton)."""
         if cls._graph_builder is None:
             cls._graph_builder = GraphManager()
@@ -118,7 +119,4 @@ class CallbackTask(BaseTask):
     async def aclose_graph_builder(cls) -> None:
         """Close and clear the shared GraphManager instance if present."""
         if cls._graph_builder is not None:
-            try:
-                await cls._graph_builder.aclose()
-            finally:
-                cls._graph_builder = None
+            cls._graph_builder = None

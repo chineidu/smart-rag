@@ -106,14 +106,14 @@ class GraphManager:
         # ============= Add nodes =============
         # =====================================
 
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "validate_query",
             validate_query_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "unrelated_query",
             unrelated_query_node,
             retry_policy=RetryPolicy(
@@ -121,28 +121,28 @@ class GraphManager:
             ),
         )
 
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "generate_plan",
             generate_plan_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "retrieve_internal_docs",
             retrieve_internal_docs_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "internet_search",
             internet_search_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "compress_documents",
             compress_documents_node,
             retry_policy=RetryPolicy(
@@ -150,28 +150,28 @@ class GraphManager:
             ),
         )
 
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "reflect",
             reflection_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "final_answer",
             final_answer_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "overall_convo_summarization",
             overall_convo_summarization_node,
             retry_policy=RetryPolicy(
                 max_attempts=MAX_ATTEMPTS, initial_interval=INITIAL_RETRY_INTERVAL
             ),
         )
-        builder.add_node(
+        builder.add_node(  # type: ignore
             "update_lt_memory",
             update_lt_memory_node,
             retry_policy=RetryPolicy(

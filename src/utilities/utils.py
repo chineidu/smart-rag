@@ -646,7 +646,7 @@ def dedupe_model_list(model_list: ModelList[T]) -> ModelList[T]:
     for item in model_list:
         # Convert to dict for comparison - use mode='json' for full serialization
         item_dict = (
-            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)  # type: ignore
         )
 
         try:
@@ -657,7 +657,7 @@ def dedupe_model_list(model_list: ModelList[T]) -> ModelList[T]:
 
         if key not in seen:
             seen.add(key)
-            unique_items.append(item)
+            unique_items.append(item)  # type: ignore
 
     return ModelList[T](items=unique_items)
 

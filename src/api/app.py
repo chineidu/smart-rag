@@ -13,7 +13,16 @@ from src.api.core.middleware import (
     LoggingMiddleware,
     RequestIDMiddleware,
 )
-from src.api.routes import auth, health, history, rag, retrievals, stream, task_status
+from src.api.routes import (
+    admin,
+    auth,
+    health,
+    history,
+    rag,
+    retrievals,
+    stream,
+    task_status,
+)
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
@@ -57,6 +66,7 @@ def create_application() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)  # type: ignore
 
     # Include routers
+    app.include_router(admin.router, prefix=prefix)
     app.include_router(auth.router, prefix=auth_prefix)
     app.include_router(health.router, prefix=prefix)
     app.include_router(history.router, prefix=prefix)

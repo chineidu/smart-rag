@@ -23,7 +23,10 @@ def cleanup_old_records(self) -> None:  # noqa: ANN001
                 .select_from(CeleryTaskCleanup)
                 .where(CeleryTaskCleanup.date_done < cutoff_date)
             )
-            old_tasks: int = session.scalar(count_stmt)
+            old_tasks: int | None = session.scalar(count_stmt)
+            if old_tasks is None:
+                old_tasks = 0
+
             # Delete old records
             delete_stmt = delete(CeleryTaskCleanup).where(
                 CeleryTaskCleanup.date_done < cutoff_date
@@ -48,7 +51,9 @@ def health_check() -> None:
 
             # Get some statistics
             total_tasks_stmt = select(func.count()).select_from(CeleryTaskCleanup)
-            total_tasks: int = session.scalar(total_tasks_stmt)
+            total_tasks: int | None = session.scalar(total_tasks_stmt)
+            if total_tasks is None:
+                total_tasks = 0
 
             failed_tasks_stmt = (
                 select(func.count())

@@ -108,9 +108,11 @@ class CacheSetup:
             )
             # Fallback to in-memory cache
             self._initialized = True
-            self._cache = Cache(
-                Cache.MEMORY, serializer=JsonSerializer(), namespace="main"
-            )  # type: ignore
+            self._cache = Cache(  # type: ignore
+                Cache.MEMORY,
+                serializer=JsonSerializer(),
+                namespace="main",
+            )
             return self._cache  # type: ignore
 
     def is_ready(self) -> bool:

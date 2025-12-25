@@ -39,17 +39,16 @@ def register_user(
 
     Parameters
     ----------
-    user : UserCreateSchema
-        Data required to create a new user (e.g. username, email, password).
-    db : Session, optional
-        Database session dependency used to query and persist user data
-        (default is provided by dependency injection).
+        user: UserCreateSchema
+            Data required to create a new user (e.g. username, email, password).
+        db: Session, optional
+            Database session dependency used to query and persist user data
+            (default is provided by dependency injection).
 
     Returns
     -------
-    UserSchema
-        Schema representation of the newly created user.
-
+        UserSchema
+            Schema representation of the newly created user.
     """
     crud_factory = CRUDFactory(db=db)
 
@@ -98,16 +97,16 @@ async def login_for_access_token(
 
     Parameters
     ----------
-    form_data: OAuth2PasswordRequestForm
-        Dependency-injected form containing 'username' and 'password' fields.
-        Provided by FastAPI via Depends().
-    db : Session, optional
-        Database session dependency used to query and persist user data
-        (default is provided by dependency injection).
+        form_data: OAuth2PasswordRequestForm
+            Dependency-injected form containing 'username' and 'password' fields.
+            Provided by FastAPI via Depends().
+        db: Session, optional
+            Database session dependency used to query and persist user data
+            (default is provided by dependency injection).
 
     Returns
     -------
-    dict[str, str]
+        dict[str, str]
 
     """
     logger.info("Authenticating user...")
@@ -136,10 +135,16 @@ async def get_current_user(
     Endpoint to get the current logged-in user. This endpoint is protected
     and requires a valid JWT token.
 
+    Parameters
+    ----------
+        current_user: UserSchema
+            The current logged-in user, provided by the dependency injection
+            of get_current_active_user.
+
     Returns:
     -------
-    UserSchema
-        The current logged-in user's details.
+        UserSchema
+            The current logged-in user's details.
     """
 
     return UserSchema(

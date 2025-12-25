@@ -68,10 +68,34 @@ class TogetherEmbeddings(BaseModel, Embeddings):
             msg = "Together client is not initialized. Did you call TogetherEmbeddings() with a valid API key?"
             raise RuntimeError(msg)
 
-        return [
-            i.embedding
-            for i in self.client.embeddings.create(input=texts, model=self.model).data  # type: ignore
-        ]  # type: ignore
+        response = self.client.embeddings.create(input=texts, model=self.model)
+        data = getattr(response, "data", None)
+        if not data:
+            raise ValueError(
+                f"No embeddings returned for {len(texts)} inputs. Response: {response}"
+            )
+
+        vectors: list[list[float]] = []
+        for idx, emb in enumerate(data):
+            vector = getattr(emb, "embedding", None)
+            if vector is None:
+                raise ValueError(
+                    f"Missing embedding vector at index {idx}. Response: {emb}"
+                )
+
+            if not isinstance(vector, (list, tuple)):
+                raise TypeError(
+                    f"Embedding at index {idx} is not a sequence. Got: {type(vector)}"
+                )
+
+            try:
+                vectors.append([float(v) for v in vector])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Non-numeric embedding values at index {idx}"
+                ) from exc
+
+        return vectors
 
     def embed_query(self, text: str) -> list[float]:
         """Embed query text."""
@@ -131,7 +155,8 @@ class OpenRouterEmbeddings(BaseModel, Embeddings):
 
         if "data" not in response:
             raise KeyError(
-                f"'data' key not found in OpenRouter response. Available keys: {list(response.keys())}. Response: {response}"
+                f"'data' key not found in OpenRouter response. Available keys: {list(response.keys())}. "
+                f"Response: {response}"
             )
 
         return [emb["embedding"] for emb in response["data"]]
@@ -157,7 +182,8 @@ class OpenRouterEmbeddings(BaseModel, Embeddings):
 
         if "data" not in response:
             raise KeyError(
-                f"'data' key not found in OpenRouter response. Available keys: {list(response.keys())}. Response: {response}"
+                f"'data' key not found in OpenRouter response. Available keys: {list(response.keys())}. "
+                f"Response: {response}"
             )
 
         return [emb["embedding"] for emb in response["data"]]

@@ -117,6 +117,9 @@ def keyword_search(query: str, k: int = 3) -> list[Document]:
     """Perform keyword search using BM25 and return top k documents."""
 
     _vs_setup = get_vectorstore_setup()
+    vectorstore = None
+    bm25_dict = None
+
     if _vs_setup is not None and _vs_setup.is_ready():
         vectorstore = _vs_setup.get_vectorstore()
     if vectorstore is None:
@@ -164,6 +167,8 @@ def rerank_documents(
         Documents sorted by relevance score in descending order.
     """
     _reranker_setup = get_reranker_setup()
+    reranker = None
+
     if _reranker_setup is not None and _reranker_setup.is_ready():
         reranker = _reranker_setup.get_model()
     if reranker is None:
