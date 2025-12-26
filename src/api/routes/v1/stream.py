@@ -4,17 +4,25 @@ import json
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Request
+from fastapi.param_functions import Depends
 from fastapi.responses import StreamingResponse
 from kombu.exceptions import OperationalError
 
 from src import create_logger
-from src.api.core.exceptions import HTTPError, StreamingError, UnexpectedError
+from src.api.core.auth import get_current_active_user
+from src.api.core.exceptions import (
+    HTTPError,
+    StreamingError,
+    UnauthorizedError,
+    UnexpectedError,
+)
 from src.api.core.ratelimit import limiter
 from src.api.core.reponses import MsgSpecJSONResponse
 from src.celery_app.tasks.prediction import generate_streaming_response_task
 from src.config import app_config
 from src.schemas.routes.streamer_schema import SessionResponse, UserSessions
 from src.schemas.types import EventsType, RoleType
+from src.schemas.user_schema import UserWithHashSchema
 from src.stream_manager import StreamSessionManager
 
 logger = create_logger("streaming_response")
@@ -46,15 +54,19 @@ def format_sse(data: str, event: str | None = None, retry: int | None = None) ->
 async def create_session(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     user_id: str | None = None,
+    current_user: UserWithHashSchema = Depends(get_current_active_user),
 ) -> SessionResponse:
     """Create a new streaming session.
 
     Parameters
     ----------
-    user_id : str | None, optional
-        The user ID to associate with this session for conversation history tracking.
+        user_id : str | None, optional
+            The user ID to associate with this session for conversation history tracking.
     """
     try:
+        if not current_user:
+            raise UnauthorizedError("User must be authenticated to create a session.")
+
         session_id: str = await session_manager.acreate_session(user_id=user_id)
         logger.info(
             f"Created new session with ID: {session_id}"
@@ -63,6 +75,7 @@ async def create_session(
         return SessionResponse(
             task_id=None, session_id=session_id, message="Session created successfully"
         )
+
     except Exception as e:
         logger.error(f"Error creating session: {e}", exc_info=True)
         raise UnexpectedError("Error occurred while creating the session.") from e
@@ -73,20 +86,24 @@ async def create_session(
 async def list_user_sessions(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     user_id: str,
+    current_user: UserWithHashSchema = Depends(get_current_active_user),
 ) -> UserSessions:
     """List all sessions for a user with metadata.
 
     Parameters
     ----------
-    user_id : str
-        The unique identifier for the user.
+        user_id : str
+            The unique identifier for the user.
 
     Returns
     -------
-    UserSessions
-        List of session objects with metadata sorted by creation time (newest first).
+        UserSessions
+            List of session objects with metadata sorted by creation time (newest first).
     """
     try:
+        if not current_user:
+            raise UnauthorizedError("User must be authenticated to create a session.")
+
         sessions = await session_manager.aget_user_sessions(user_id=user_id)
         logger.info(f"Retrieved {len(sessions)} sessions for user {user_id}")
         return UserSessions(user_id=user_id, sessions=sessions, count=len(sessions))
@@ -103,13 +120,17 @@ async def submit_query(
     message: str,
     user_id: str,
     session_id: str,
-    role: RoleType | None = None,
+    role: RoleType | None = RoleType.GUEST,
+    current_user: UserWithHashSchema = Depends(get_current_active_user),
 ) -> SessionResponse:
     """Trigger a Celery task to generate a streaming response."""
     try:
+        if not current_user:
+            raise UnauthorizedError("User must be authenticated to create a session.")
+
         # Route task to queue based on role
-        # Default to USER if not provided
-        selected_role = role or RoleType.USER
+        # Default to GUEST if not provided
+        selected_role = role or RoleType.GUEST
         if selected_role in (RoleType.ADMIN, RoleType.USER):
             target_queue = app_config.queues_config.high_priority_ml
         else:
@@ -122,6 +143,7 @@ async def submit_query(
                     "session_id": session_id,
                     "user_id": user_id,
                 },
+                # Trigger immediately (no countdown)
                 countdown=0,
                 queue=target_queue,
             )
@@ -205,20 +227,24 @@ async def chat_stream(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     session_id: str,
     last_id: str = "$",  # Default to $ for new events only (continue mode)
+    current_user: UserWithHashSchema = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """Endpoint to stream chat responses for a given session.
 
     Parameters
     ----------
-    session_id : str
-        The unique identifier for the session.
-    last_id : str, optional
-        The Redis stream ID to start reading from:
-        - "0": Replay all events from the beginning
-        - "$": Stream only new events (continue conversation)
-        - "{message_id}": Start from a specific message ID
+        session_id : str
+            The unique identifier for the session.
+        last_id : str, optional
+            The Redis stream ID to start reading from:
+            - "0": Replay all events from the beginning
+            - "$": Stream only new events (continue conversation)
+            - "{message_id}": Start from a specific message ID
     """
     try:
+        if not current_user:
+            raise UnauthorizedError("User must be authenticated to create a session.")
+
         # Validate session exists (only stream existing sessions)
         if not await session_manager.asession_exists(session_id=session_id):
             logger.warning(f"Stream requested for unknown session {session_id!r}")

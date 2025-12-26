@@ -55,7 +55,7 @@ class Settings(BaseSettingsConfig):
     CELERY_OPTIMIZATION: str = "fair"  # Optimize Celery performance
     CELERY_CONCURRENCY: str = "1"  # Number of concurrent worker processes/threads
     CELERY_POOL: PoolType = PoolType.THREADS  # Worker pool type
-    CELERY_QUEUES_NORMAL: str = "normal_priority_ml,notifications,periodic"
+    CELERY_QUEUES_LOW: str = "low_priority_ml,user_notifications,periodic"
     CELERY_LOGLEVEL: LoggingLevelEnum = LoggingLevelEnum.WARNING
     CELERY_HOSTNAME_SUFFIX: str = ""
 

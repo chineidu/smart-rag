@@ -8,7 +8,8 @@ This agentic RAG app answers multi-subject questions using RAG Fusion, precise r
 - [SMART RAG AGENT](#smart-rag-agent)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
-  - [How To Make Requests](#how-to-make-requests)
+  - [Obtain Bearer Token](#obtain-bearer-token)
+  - [How To Stream Requests](#how-to-stream-requests)
   - [API Endpoints](#api-endpoints)
     - [Supervisord Commands](#supervisord-commands)
   - [Database Migrations](#database-migrations)
@@ -31,16 +32,46 @@ This agentic RAG app answers multi-subject questions using RAG Fusion, precise r
 - Vector storage in Qdrant, Redis caching, and Postgres-backed LangGraph checkpoints for resilience.
 - Built-in migrations (Alembic) and supervisor scripts for easy worker management.
 
-## How To Make Requests
+## Obtain Bearer Token
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/auth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=<your_username>&password=<your_password>"
+
+# E.g. Use a GUEST account
+curl -s -X POST http://localhost:8000/api/v1/auth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=guest&password=guest123"
+```
+
+Sample response:
+
+```json
+{"access_token":"eyJhbGciO...","token_type":"bearer"}
+```
+
+## How To Stream Requests
 
 - Base URL: <http://localhost:8000/api/v1>
 - Use `-N` for streaming endpoints to keep the connection open.
 - Example:
 
 ```bash
+TOKEN="<paste_access_token_here>"
+
 curl -N --get \
-  --data-urlencode "message=What was Nvidia's yearly income in 2023? Include revenue, expenses, and net income." \
-  "http://localhost:8000/api/v1/chat_stream"
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: text/event-stream" \
+  --data-urlencode "last_id=$" \
+  "http://localhost:8000/api/v1/sessions/<your-session-id>/stream"
+
+# e.g.
+curl -N --get \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: text/event-stream" \
+  --data-urlencode "last_id=$" \
+  "http://localhost:8000/api/v1/sessions/9ba93a69-18e4-4416-b186-ea76f7ac8906/stream"
 ```
 
 Typical streamed chunk:
