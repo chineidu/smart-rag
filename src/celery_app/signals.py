@@ -29,9 +29,21 @@ from src.utilities.reranker import CrossEncoderSetup
 from src.utilities.vectorstores import VectorStoreSetup
 
 if TYPE_CHECKING:
-    pass
+    from langchain_core.embeddings import Embeddings
+
 
 logger = create_logger(name="celery_app")
+# Constants
+FILEPATHS: str | list[str] = app_config.vectorstore_config.filepaths
+JQ_SCHEMA: str | None = app_config.vectorstore_config.jq_schema
+FORMAT: str = app_config.vectorstore_config.format
+COLLECTION: str = app_config.vectorstore_config.collection
+FILEPATHS_IS_GLOB: bool = app_config.vectorstore_config.filepaths_is_glob
+EMBEDDING_MODEL: "Embeddings" = OpenRouterEmbeddings(
+    model=app_config.llm_model_config.embedding_model.model_name
+)
+QDRANT_CLIENT: QdrantClient = QdrantClient(url=app_settings.qdrant_url)
+SPLIT_BY_SECTIONS: bool = app_config.vectorstore_config.split_by_sections
 
 
 # ===========================================
@@ -62,21 +74,17 @@ def worker_init_handler(sender: Any | None = None, **kwargs: Any) -> None:  # no
         CallbackTask._graph_builder = graph_manager
 
         # ---- Vectorstore ----
-        embedding_model = OpenRouterEmbeddings(
-            model=app_config.llm_model_config.embedding_model.model_name
-        )
-        qdrant_client: QdrantClient = QdrantClient(url=app_settings.qdrant_url)
-
         vs_setup = VectorStoreSetup()
         asyncio.run(
             vs_setup.asetup_vectorstore(
-                app_config.vectorstore_config.filepaths,
-                app_config.vectorstore_config.jq_schema,
-                app_config.vectorstore_config.format,
-                embedding_model,
-                qdrant_client,
-                app_config.vectorstore_config.collection,
-                app_config.vectorstore_config.filepaths_is_glob,
+                filepaths=FILEPATHS,
+                jq_schema=JQ_SCHEMA,
+                format=FORMAT,
+                embedding_model=EMBEDDING_MODEL,
+                client=QDRANT_CLIENT,
+                collection=COLLECTION,
+                filepaths_is_glob=FILEPATHS_IS_GLOB,
+                split_by_sections=SPLIT_BY_SECTIONS,
             )
         )
         if not vs_setup.is_ready():
@@ -134,7 +142,7 @@ def on_worker_shutdown(sender: Any | None = None, **kwargs: Any) -> None:  # noq
 def task_prerun_handler(
     task_id: str,
     task: Any,
-    args: Any,
+    args: Any,  # noqa: ARG001
     kwargs: Any,
     **extra: Any,  # noqa: ARG001
 ) -> None:
@@ -145,16 +153,20 @@ def task_prerun_handler(
     kwargs are accessible if passed during task invocation using apply_async.
     """
     session_id = kwargs.get("session_id", "unknown")
-    logger.info(f"Task {task.name} started: {task_id} (session: {session_id})")
+    # For RabbitMQ/Redis
+    queue: str = task.request.delivery_info.get("routing_key", "unknown")
+    logger.info(
+        f"Task {task.name} started: {task_id} (session: {session_id}, queue: {queue})"
+    )
 
 
 @task_postrun.connect
 def task_postrun_handler(
     task_id: str,
     task: Any,
-    args: Any,
+    args: Any,  # noqa: ARG001
     kwargs: Any,
-    retval: Any,
+    retval: Any,  # noqa: ARG001
     **extra: Any,  # noqa: ARG001
 ) -> None:
     """Log when task completes"""

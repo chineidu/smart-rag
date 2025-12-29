@@ -9,8 +9,13 @@ This agentic RAG app answers multi-subject questions using RAG Fusion, precise r
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Obtain Bearer Token](#obtain-bearer-token)
-  - [How To Stream Requests](#how-to-stream-requests)
   - [API Endpoints](#api-endpoints)
+    - [Send Query](#send-query)
+    - [Stream Requests](#stream-requests)
+    - [Health](#health)
+    - [Chat History](#chat-history)
+    - [Retrieval](#retrieval)
+    - [Task Status](#task-status)
     - [Supervisord Commands](#supervisord-commands)
   - [Database Migrations](#database-migrations)
     - [Alembic Setup](#alembic-setup)
@@ -51,15 +56,36 @@ Sample response:
 {"access_token":"eyJhbGciO...","token_type":"bearer"}
 ```
 
-## How To Stream Requests
+## API Endpoints
+
+### Send Query
+
+```bash
+TOKEN="<paste_access_token_here>"
+
+curl -s -X POST "http://localhost:8000/api/v1/sessions/<session_id>/query" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "message=<your_message>" \
+  --data-urlencode "user_id=<your_user_id>" \
+  --data-urlencode "session_id=<session_id>" \
+  --data-urlencode "role=guest"
+
+# E.g.
+curl -s -X POST "http://localhost:8000/api/v1/sessions/9ba93a69-18e4-4416-b186-ea76f7ac8906/query" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "message=Summarize Nvidia's 2023 financials" \
+  --data-urlencode "user_id=guest-user" \
+  --data-urlencode "session_id=9ba93a69-18e4-4416-b186-ea76f7ac8906" \
+  --data-urlencode "role=guest"
+```
+
+### Stream Requests
 
 - Base URL: <http://localhost:8000/api/v1>
 - Use `-N` for streaming endpoints to keep the connection open.
 - Example:
 
 ```bash
-TOKEN="<paste_access_token_here>"
-
 curl -N --get \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: text/event-stream" \
@@ -80,7 +106,7 @@ Typical streamed chunk:
 data: {"event_type": "final_answer", "data": {"answer": "Nvidia reported ~$27B revenue and ~$4.4B net income in FY2023...", "sources": [{"title": "2023 10-K", "url": "https://example.com/10k"}]}}
 ```
 
-## API Endpoints
+### Health
 
 - **Health** – quick service check
 
@@ -94,54 +120,27 @@ Sample response:
 {"name": "SMART RAG AGENT", "status": "ok", "version": "0.1.0"}
 ```
 
-- **Chat (direct streaming, no Celery)** – SSE stream of graph output
+### Chat History
+
+- **Chat history** – fetch stored messages for a session
 
 ```bash
-curl -N --get \
-  --data-urlencode "message=Summarize the latest Nvidia filing" \
-  "http://localhost:8000/api/v1/chat_stream"
+curl -s "http://localhost:8000/api/v1/chat_history?session_id={session_id}" | jq
 ```
 
-First event for new sessions includes `session_id`, followed by node events and a final `done` event.
+### Retrieval
 
-- **Streaming sessions (Celery-backed)**
-  - Create session
+- **Retrieval** – keyword, semantic, or hybrid search
 
-  ```bash
-  curl -s http://localhost:8000/api/v1/sessions | jq
-  ```
+```bash
+# Keyword
+curl -s "http://localhost:8000/api/v1/retrievals/keyword?query=AI%20chips&k=5" | jq
 
-  - Submit a prompt to a session (routes to high/low priority queue by role)
+# Semantic with optional section filter
+curl -s "http://localhost:8000/api/v1/retrievals/semantic?query=GPU%20forecast&filter=exec" | jq
 
-  ```bash
-  curl -s -X POST \
-    "http://localhost:8000/api/v1/sessions/{session_id}/query" \
-    -d "message=Explain RAG fusion" -d "user_id=user-123"
-  ```
-
-  - Stream the response via SSE
-
-  ```bash
-  curl -N "http://localhost:8000/api/v1/sessions/{session_id}/stream?last_id=$"
-  ```
-
-  - **Chat history** – fetch stored messages for a session
-
-  ```bash
-  curl -s "http://localhost:8000/api/v1/chat_history?session_id={session_id}" | jq
-  ```
-
-  - **Retrieval** – keyword, semantic, or hybrid search
-
-  ```bash
-  # Keyword
-  curl -s "http://localhost:8000/api/v1/retrievals/keyword?query=AI%20chips&k=5" | jq
-
-  # Semantic with optional section filter
-  curl -s "http://localhost:8000/api/v1/retrievals/semantic?query=GPU%20forecast&filter=exec" | jq
-
-  # Hybrid (vector + keyword)
-  curl -s "http://localhost:8000/api/v1/retrievals/hybrid?query=datacenter%20revenue&k=5" | jq
+# Hybrid (vector + keyword)
+curl -s "http://localhost:8000/api/v1/retrievals/hybrid?query=datacenter%20revenue&k=5" | jq
   ```
 
 Example item:
@@ -149,6 +148,8 @@ Example item:
 ```json
 {"id": "doc-123", "content": "Nvidia reported record data center revenue...", "score": 0.82, "metadata": {"section": "financials", "source": "10-K"}}
 ```
+
+### Task Status
 
 - **Task status** – poll Celery tasks
 

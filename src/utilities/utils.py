@@ -519,6 +519,59 @@ def extract_10k_sections(documents: list[Document]) -> tuple[list[str], list[str
     return (section_titles, section_content)
 
 
+def chunk_data_default(
+    documents: list[Document],
+    chunk_size: int = 1_000,
+    chunk_overlap: int = 100,
+    add_start_index: bool = True,
+) -> list[Document]:
+    """Chunk document sections into smaller pieces with metadata.
+
+    Parameters
+    ----------
+    documents : list[Document]
+            List of documents to split. Each item should be a Document containing textual content
+            (for example via a `page_content` or `text` attribute). Original document metadata is
+            preserved and propagated to resulting chunks.
+    chunk_size : int, default=1000
+            Maximum number of characters per chunk.
+    chunk_overlap : int, default=100
+        Number of overlapping characters between consecutive chunks.
+    add_start_index : bool, default=True
+        Whether to add a `start_index` field in metadata to track original position.
+
+    Returns
+    -------
+    list[Document]
+        List of Document chunks with metadata including source, section, and chunk_id.
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,  # chunk size (characters)
+        chunk_overlap=chunk_overlap,  # chunk overlap (characters)
+        add_start_index=add_start_index,  # track index in original document
+    )
+
+    _documents: list[Document] = text_splitter.split_documents(documents)
+    doc_chunks_with_metadata: list[Document] = []
+
+    # Update the metadata for each chunk
+    for doc in _documents:
+        chunk_id: str = str(uuid4())  # unique ID for this chunk
+        doc_chunks_with_metadata.append(  # noqa: PERF401
+            Document(
+                page_content=doc.page_content,
+                metadata={
+                    **doc.metadata,
+                    # Add unique chunk ID
+                    "chunk_id": chunk_id,
+                },
+            )
+        )
+    print(f"Created {len(doc_chunks_with_metadata)} document chunks with metadata.")
+
+    return doc_chunks_with_metadata
+
+
 def chunk_data_by_sections(
     source: str,
     section_titles: list[str],
@@ -643,11 +696,11 @@ def dedupe_model_list(model_list: ModelList[T]) -> ModelList[T]:
     seen = set()
     unique_items: list[T] = []
 
-    for item in model_list:
+    for item in model_list.items:
         # Convert to dict for comparison - use mode='json' for full serialization
         item_dict = (
-            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)  # type: ignore
-        )
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+        )  # type: ignore
 
         try:
             key = json.dumps(item_dict, sort_keys=True, separators=(",", ":"))
@@ -740,7 +793,7 @@ def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
     # Case 1: Both are ModelList - merge and deduplicate
     if isinstance(existing, ModelList) and isinstance(new, ModelList):
         # Combine items
-        combined = ModelList[T](items=list(existing) + list(new))  # type: ignore
+        combined = ModelList[T](items=existing.items + new.items)  # type: ignore
         # Deduplicate and return
         return dedupe_model_list(combined).items  # type: ignore
 

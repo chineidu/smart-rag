@@ -1,20 +1,25 @@
 config:
   vectorstore_config:
-    filepaths: data/nvidia_10k_filing.txt
+    filepaths: data/digital_intelligence_drives_business_growth.pdf
     jq_schema: ""
-    format: txt
-    collection: 10k_filing
+    format: pdf
+    collection: digital_intelligence_drives_business_growth
     filepaths_is_glob: false
     force_recreate: false
+    split_by_sections: false
 
   custom_config:
     topics:
-      - Nvidia's financial performance
-      - Nvidia 10-K filing
-      - news related to Nvidia and industry trends
+      - Digital intelligence
+      - Data-driven decision making
+      - Business growth strategies
+      - Market analysis
+      - Driving forces and foundations of Digital Intelligence (Digintelligence)
+      - Digintelligent manufacturing and channels
+      - Operation digitalization
     fetch_full_page: true
-    k: 5
-    rerank_k: 3
+    k: 10
+    rerank_k: 6
     max_chars: null
     max_attempts: 3
     max_messages: 20 # Max messages in the conversation history

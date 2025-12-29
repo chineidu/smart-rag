@@ -41,6 +41,13 @@ class VectorStoreConfig:
             "description": "If True, delete and recreate existing collection to match embedding dimension."
         },
     )
+    split_by_sections: bool = field(
+        default=False,
+        metadata={
+            "description": "If True, split documents based on extracted sections; otherwise, "
+            "use character-based splitting."
+        },
+    )
 
 
 @dataclass(slots=True, kw_only=True)

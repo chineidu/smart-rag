@@ -3,7 +3,6 @@ import asyncio
 from langchain_core.documents.base import Document
 from langchain_core.embeddings import Embeddings
 from langchain_qdrant import QdrantVectorStore
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
@@ -11,6 +10,7 @@ from src import create_logger
 from src.schemas.types import FileFormatsType
 from src.utilities.utils import (
     chunk_data_by_sections,
+    chunk_data_default,
     extract_10k_sections,
     load_all_documents,
 )
@@ -95,11 +95,12 @@ class VectorStoreSetup:
                 add_start_index=add_start_index,
             )
 
-        return RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,  # chunk size (characters)
-            chunk_overlap=chunk_overlap,  # chunk overlap (characters)
-            add_start_index=add_start_index,  # track index in original document
-        ).split_documents(documents)
+        return chunk_data_default(
+            documents=documents,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            add_start_index=add_start_index,
+        )
 
     async def asetup_vectorstore(
         self,
@@ -111,6 +112,7 @@ class VectorStoreSetup:
         collection: str,
         filepaths_is_glob: bool = False,
         force_recreate: bool = False,
+        split_by_sections: bool = False,
     ) -> QdrantVectorStore | None:
         """Set up a Qdrant vector store with embedded documents.
 
@@ -130,6 +132,9 @@ class VectorStoreSetup:
             Name of the Qdrant collection to use or create.
         filepaths_is_glob : bool, optional
             If True, treat `filepaths` as a glob pattern to match multiple files, by default False
+        split_by_sections : bool, default=False
+            If True, split documents based on extracted sections; otherwise, use character-based splitting.
+
         Returns
         -------
         QdrantVectorStore
@@ -155,7 +160,7 @@ class VectorStoreSetup:
                 chunked_docs: list[Document] = self.chunk_documents(
                     documents=docs,
                     source="Nvidia_10K_Filings",
-                    split_by_sections=True,
+                    split_by_sections=split_by_sections,
                 )
                 normalized_docs: list[Document] = _normalize_data(chunked_docs)
                 sample_text: str = "sample text"

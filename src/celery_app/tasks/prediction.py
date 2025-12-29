@@ -24,7 +24,7 @@ RECURSION_LIMIT = app_config.custom_config.recursion_limit
 # meaning that we need to use `self` and this provides additional functionality like retries, etc
 @celery_app.task(bind=True, base=CallbackTask)
 def generate_streaming_response_task(
-    self,
+    self,  # noqa: ANN001
     session_id: str,
     message: str,
     user_id: str,  # noqa: ANN001
@@ -50,8 +50,8 @@ def generate_streaming_response_task(
     self.retry
         _description_
     """
-    user_id = "dummy_user"  # Placeholder for user ID extraction
     task_id = self.request.id  # type: ignore
+    queue = self.request.delivery_info.get("routing_key", "unknown")
 
     async def _run_generation() -> dict[str, Any]:
         """This uses a single event loop to run the async generation and streaming.
@@ -68,6 +68,7 @@ def generate_streaming_response_task(
             graph_builder=graph_builder,
             user_id=user_id,
             task_id=task_id,
+            queue=queue,
         )
 
     try:
@@ -86,6 +87,7 @@ async def _agenerate_and_stream(
     graph_builder: GraphManager,
     user_id: str,
     task_id: str,
+    queue: str,
 ) -> dict[str, Any]:
     """Helper function to generate and stream response asynchronously.
     Returns
@@ -115,7 +117,10 @@ async def _agenerate_and_stream(
 
         config: RunnableConfig = {
             "recursion_limit": RECURSION_LIMIT,
-            "configurable": {"thread_id": _session_id, "user_id": user_id},
+            "configurable": {
+                "thread_id": _session_id,
+                "user_id": user_id,
+            },
         }
         events = graph.astream(
             input_,
@@ -128,7 +133,12 @@ async def _agenerate_and_stream(
         await stream_manager.asend_event(
             _session_id,
             event_type=EventsType.SESSION_STARTED,
-            data={"session_id": _session_id, "query": message},
+            data={
+                "queue": queue,
+                "session_id": _session_id,
+                "task_id": task_id,
+                "query": message,
+            },
         )
         event_count += 1
 

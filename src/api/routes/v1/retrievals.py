@@ -22,6 +22,7 @@ from src.utilities.tools.tools import (
 
 logger = create_logger(name="retrieval")
 LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
+RERANK_K: int = app_config.custom_config.rerank_k
 router = APIRouter(
     tags=["retrieval"],
     default_response_class=MsgSpecJSONResponse,
@@ -34,14 +35,14 @@ router = APIRouter(
 async def keyword_search(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     query: str = Query(description="The search query string"),
-    k: int = Query(5, description="Number of top documents to retrieve"),
+    k: int = Query(8, description="Number of top documents to retrieve"),
     # Required by caching decorator
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for keyword-based document retrieval"""
     try:
         documents = await akeyword_search_tool(query, filter=None, k=k)
-        documents = await arerank_documents(query, documents, k=3)
+        documents = await arerank_documents(query, documents, k=RERANK_K)
         if not documents:
             BaseAPIError(
                 message="Keyword search failed",
@@ -66,14 +67,14 @@ async def semantic_search(
     filter: SectionNamesType | None = Query(
         None, description="Optional metadata filter for 'metadata.section'"
     ),
-    k: int = Query(5, description="Number of top documents to retrieve"),
+    k: int = Query(8, description="Number of top documents to retrieve"),
     # Required by caching decorator
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for semantic (vector) document retrieval"""
     try:
         documents = await avector_search_tool(query, filter=filter, k=k)
-        documents = await arerank_documents(query, documents, k=3)
+        documents = await arerank_documents(query, documents, k=RERANK_K)
 
         if not documents:
             BaseAPIError(
@@ -99,14 +100,14 @@ async def hybrid_search(
     filter: SectionNamesType | None = Query(
         None, description="Optional metadata filter for 'metadata.section'"
     ),
-    k: int = Query(5, description="Number of top documents to retrieve"),
+    k: int = Query(8, description="Number of top documents to retrieve"),
     # Required by caching decorator
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> list[dict[str, Any]]:
     """Route for hybrid (vector + keywords) document retrieval"""
     try:
         documents = await ahybrid_search_tool(query, filter=filter, k=k)
-        documents = await arerank_documents(query, documents, k=3)
+        documents = await arerank_documents(query, documents, k=RERANK_K)
 
         if not documents:
             BaseAPIError(

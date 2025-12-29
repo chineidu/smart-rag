@@ -25,7 +25,6 @@ _planner_prompt: str = """
         - Do NOT include summarization/synthesis steps (handled separately)
         - Each step needs clear rationale for why it's necessary
         - Make questions specific and focused for targeted retrieval
-        - For `vector_store`, ALWAYS specify `target_section`
         - Use the user's preferences to guide planning
         - Consider previous interactions to avoid redundant steps
     </GUIDELINES>

@@ -26,7 +26,6 @@ from src.schemas.nodes_schema import (
 from src.schemas.types import (
     MemoryKeys,
     NextAction,
-    SectionNamesType,
     SummarizationConditionType,
     ToolsType,
 )
@@ -61,7 +60,7 @@ MAX_ATTEMPTS: int = app_config.custom_config.max_attempts
 
 
 prompt_builder = PromptsBuilder()
-section_titles: list[str] = [s.value for s in SectionNamesType]
+section_titles: list[str] = ["NULL"]
 
 
 # =========================================================
@@ -93,10 +92,10 @@ async def validate_query_node(state: State) -> dict[str, Any]:
         messages=messages, model=None, schema=ValidateQuery
     )
     response = cast(ValidateQuery, response)
-    # logger.info(
-    #     f"🚨 Related to topic?: {response.is_related_to_context} | "
-    #     f"Next Action: {response.next_action} | Rationale: {response.rationale}"
-    # )
+    logger.info(
+        f"🚨 Related to topic?: {response.is_related_to_context} | "
+        f"Next Action: {response.next_action} | Rationale: {response.rationale}"
+    )
 
     step_state: dict[str, Any] = {
         "step_index": -1,
@@ -536,8 +535,8 @@ async def update_lt_memory_node(
 
         try:
             messages: list[dict[str, str]] = convert_langchain_messages_to_dicts(
-                context
-            )  # type: ignore
+                context  # type: ignore
+            )
             new_memory: StructuredMemoryResponse = await get_structured_output(  # type: ignore
                 messages=messages,
                 model=None,

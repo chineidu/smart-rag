@@ -1,34 +1,0 @@
-[2025-12-16 02:39:07,065: INFO/MainProcess] Task src.celery_app.tasks.prediction.generate_streaming_response_task[fc65d691-4401-4fd7-a463-fd22a10279dd] received
-[2025-12-16 02:39:09,178: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:10,360: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:12,137: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:12,251: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:13,382: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:13,385: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:13,388: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:13,399: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:13,876: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:14,003: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:14,059: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:14,079: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:14,090: WARNING/ForkPoolWorker-2] Batches:   0%|          | 0/1 [00:00<?, ?it/s]
-[2025-12-16 02:39:14,267: WARNING/ForkPoolWorker-2] Batches: 100%|##########| 1/1 [00:00<00:00,  5.68it/s]
-[2025-12-16 02:39:14,268: WARNING/ForkPoolWorker-2] Batches: 100%|##########| 1/1 [00:00<00:00,  5.66it/s]
-[2025-12-16 02:39:15,414: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:22,472: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:23,862: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:23,948: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:24,633: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:24,634: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:24,640: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/embeddings "HTTP/1.1 200 OK"
-[2025-12-16 02:39:25,480: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:25,485: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:25,486: INFO/ForkPoolWorker-2] HTTP Request: POST http://localhost:6333/collections/10k_filing/points/query "HTTP/1.1 200 OK"
-[2025-12-16 02:39:25,488: WARNING/ForkPoolWorker-2] Batches:   0%|          | 0/1 [00:00<?, ?it/s]
-[2025-12-16 02:39:25,625: WARNING/ForkPoolWorker-2] Batches: 100%|##########| 1/1 [00:00<00:00,  7.31it/s]
-[2025-12-16 02:39:25,625: WARNING/ForkPoolWorker-2] Batches: 100%|##########| 1/1 [00:00<00:00,  7.28it/s]
-[2025-12-16 02:39:26,205: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:43,313: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:44,001: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:48,819: INFO/ForkPoolWorker-2] HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
-[2025-12-16 02:39:54,374: INFO/ForkPoolWorker-2] Task src.celery_app.tasks.prediction.generate_streaming_response_task[fc65d691-4401-4fd7-a463-fd22a10279dd] succeeded in 47.30286858401087s: {'session_id': '23c3d699-66fa-4a9d-a77b-7c8967db643f', 'task_id': 'fc65d691-4401-4fd7-a463-fd22a10279dd', 'event_count': 13, 'status': 'SUCCESS'}

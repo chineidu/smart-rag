@@ -1,4 +1,3 @@
-import os
 import time
 import warnings
 from contextlib import asynccontextmanager
@@ -25,7 +24,6 @@ warnings.filterwarnings("ignore")
 logger = create_logger(name="api_lifespan")
 
 # Constants
-MAX_WORKERS: int = os.cpu_count() - 1  # type: ignore
 FILEPATHS: str | list[str] = app_config.vectorstore_config.filepaths
 JQ_SCHEMA: str | None = app_config.vectorstore_config.jq_schema
 FORMAT: str = app_config.vectorstore_config.format
@@ -35,6 +33,7 @@ EMBEDDING_MODEL: Embeddings = OpenRouterEmbeddings(
     model=app_config.llm_model_config.embedding_model.model_name
 )
 QDRANT_CLIENT: QdrantClient = QdrantClient(url=app_settings.qdrant_url)
+SPLIT_BY_SECTIONS: bool = app_config.vectorstore_config.split_by_sections
 
 
 @asynccontextmanager
@@ -65,13 +64,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         # ==== Setup vectorstore ====
         vs_setup = VectorStoreSetup()
         vectorstore = await vs_setup.asetup_vectorstore(
-            FILEPATHS,
-            JQ_SCHEMA,
-            FORMAT,
-            EMBEDDING_MODEL,
-            QDRANT_CLIENT,
-            COLLECTION,
-            FILEPATHS_IS_GLOB,
+            filepaths=FILEPATHS,
+            jq_schema=JQ_SCHEMA,
+            format=FORMAT,
+            embedding_model=EMBEDDING_MODEL,
+            client=QDRANT_CLIENT,
+            collection=COLLECTION,
+            filepaths_is_glob=FILEPATHS_IS_GLOB,
+            split_by_sections=SPLIT_BY_SECTIONS,
         )
         if not vs_setup.is_ready() or vectorstore is None:
             raise RuntimeError("Failed to initialize vectorstore during startup")
