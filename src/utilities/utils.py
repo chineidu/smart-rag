@@ -831,6 +831,7 @@ def append_memory(existing: MemoryData, new: MemoryData) -> MemoryData:
                 result[key] = (
                     dedupe_dicts(combined)
                     if isinstance(combined[0], dict)
+                    # If items are not dicts, remove duplicates while preserving order
                     else list(dict.fromkeys(combined))
                 )
 
