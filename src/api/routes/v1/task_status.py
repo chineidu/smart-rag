@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, status
 from src import create_logger
 from src.api.core.exceptions import BaseAPIError
 from src.api.core.ratelimit import limiter
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.celery_app.app import celery_app
 from src.config import app_config
 from src.schemas.routes.task_status import TaskStatusResponse

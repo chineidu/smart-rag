@@ -6,7 +6,7 @@ from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import BaseAPIError, UnexpectedError
 from src.api.core.ratelimit import limiter
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
 from src.schemas.routes.health import HealthStatus
 

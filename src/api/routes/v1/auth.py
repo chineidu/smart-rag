@@ -14,7 +14,7 @@ from src.api.core.auth import (
 )
 from src.api.core.exceptions import UnauthorizedError
 from src.api.core.ratelimit import limiter
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
 from src.db.crud import CRUDFactory
 from src.db.models import DBUser, get_db

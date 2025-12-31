@@ -17,7 +17,7 @@ from src.api.core.exceptions import (
     UnauthorizedError,
     UnexpectedError,
 )
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.schemas.types import ErrorCodeEnum
 
 logger = create_logger(name="middleware")

@@ -7,7 +7,7 @@ from src import create_logger
 from src.api.core.cache import cached
 from src.api.core.dependencies import get_cache, get_graph_manager
 from src.api.core.ratelimit import limiter
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
 from src.graph import GraphManager
 from src.schemas.routes.history_schema import ChatHistorySchema

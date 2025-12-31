@@ -17,7 +17,7 @@ from src.api.core.exceptions import (
     UnexpectedError,
 )
 from src.api.core.ratelimit import limiter
-from src.api.core.reponses import MsgSpecJSONResponse
+from src.api.core.responses import MsgSpecJSONResponse
 from src.celery_app.tasks.prediction import generate_streaming_response_task
 from src.config import app_config
 from src.schemas.routes.streamer_schema import SessionResponse, UserSessions
